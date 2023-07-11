@@ -9,7 +9,9 @@ Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = True
 Option Explicit
 
-Private Const Caption As String = "Git管理"
+Private Const Caption As String = "Git管理(&G)"
+Private Const MaxIndex As Long = 5
+
 Private newEventsItems() As IClassBase
 
 Private Type ItemProperties
@@ -22,29 +24,47 @@ End Type
 
 Private Function MenuItemSetting() As ItemProperties()
     
-    Dim prop() As ItemProperties
+    Dim prop(1 To MaxIndex) As ItemProperties ' 【要注意】MaxIndexをメニュー数にする
     
     Dim i As Long
     
-    ' ---- メニュー開始 --------------------------------------------------
+    ' ---- メニュー開始 ------------------------------------------------------------
 
-    i = 0: ReDim prop(i)
+    i = i + 1
     prop(i).Caption = "Gitファイルを出力"
-    prop(i).OnAction = "ModuleGitFiles.GenerateGitFiles"
+    prop(i).OnAction = "ModuleGit.GenerateGitFiles"
     prop(i).FaceId = 1552
     prop(i).BeginGroup = False
     
-    i = i + 1: ReDim Preserve prop(i)
+    i = i + 1
     prop(i).Caption = "コードモジュールを出力"
-    prop(i).OnAction = "ModuleMenu.Decombine"
+    prop(i).OnAction = "ModuleGit.Decombine"
     prop(i).FaceId = 461
     prop(i).BeginGroup = True
     
+    i = i + 1
+    prop(i).Caption = "変更をステージ(&S)"
+    prop(i).OnAction = "ModuleGit.GitStage"
+    prop(i).FaceId = 535
+    prop(i).BeginGroup = True
+
+        i = i + 1
+    prop(i).Caption = "変更をコミット(&C)"
+    prop(i).OnAction = "ModuleGit.GitCommit"
+    prop(i).FaceId = 534
+    prop(i).BeginGroup = False
+
+    i = i + 1
+    prop(i).Caption = "変更をプッシュ(&P)"
+    prop(i).OnAction = "ModuleGit.GitPush"
+    prop(i).FaceId = 533
+    prop(i).BeginGroup = False
+
     
-    ' ---- メニュー終了 --------------------------------------------------
+    ' ---- メニュー終了 ------------------------------------------------------------
     
     Dim FullName As String: FullName = ThisWorkbook.FullName
-    For i = 0 To UBound(prop)
+    For i = LBound(prop) To UBound(prop)
         prop(i).FullName = FullName
     Next
     
@@ -58,7 +78,7 @@ Private Sub Workbook_BeforeClose(Cancel As Boolean)
     If IsArrayInitialized(newEventsItems) Then
     
         Dim i As Long
-        For i = 0 To UBound(newEventsItems)
+        For i = LBound(newEventsItems) To UBound(newEventsItems)
             Set newEventsItems(i) = Nothing
         Next
         
@@ -92,9 +112,9 @@ Private Sub Workbook_Open()
     newMenu.Caption = Caption
     
     Dim prop() As ItemProperties: prop = MenuItemSetting
-    ReDim newEventsItems(UBound(prop))
+    ReDim newEventsItems(LBound(prop) To UBound(prop))
     Dim i As Long, newMenuItem As CommandBarControl
-    For i = 0 To UBound(prop)
+    For i = LBound(prop) To UBound(prop)
         ' メニューにアイテムを追加
         Set newMenuItem = newMenu.Controls.Add(Type:=msoControlButton)
         With prop(i)
@@ -108,38 +128,6 @@ Private Sub Workbook_Open()
     Next
     
 End Sub
-
-Private Sub Workbook_Open2()
-    
-    ' VBEのメニューバーを取得（メニューバーのIndexは、固定値で「1」）
-    Dim VBEMenuBar As CommandBar
-    Set VBEMenuBar = Application.VBE.CommandBars.Add("Git管理")
-    
-    ' 新しいメニューを作成
-    Dim newMenu As CommandBarControl
-'    Set newMenu = VBEMenuBar.Controls.Add(Type:=msoControlButton)
-    
-    ' メニューのキャプションを設定
-'    newMenu.Caption = Caption
-    
-    Dim prop() As ItemProperties: prop = MenuItemSetting
-    ReDim newEventsItems(UBound(prop))
-    Dim i As Long, newMenuItem As CommandBarControl
-    For i = 0 To UBound(prop)
-        ' メニューにアイテムを追加
-        Set newMenuItem = VBEMenuBar.Controls.Add(Type:=msoControlButton)
-        With prop(i)
-            newMenuItem.Caption = .Caption
-            newMenuItem.OnAction = "'" & .FullName & "'!" & .OnAction
-            newMenuItem.FaceId = .FaceId
-            newMenuItem.BeginGroup = .BeginGroup
-        End With
-        ' イベントクラスの登録
-        Set newEventsItems(i) = New EventsItem: Call newEventsItems(i).Initialize(newMenuItem)
-    Next
-    VBEMenuBar.Visible = True
-End Sub
-
 
 Function IsArrayInitialized(arr() As IClassBase) As Boolean
     On Error GoTo Catch
