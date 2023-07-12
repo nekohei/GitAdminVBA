@@ -48,7 +48,7 @@ Private Function MenuItemSetting() As ItemProperties()
     prop(i).FaceId = 535
     prop(i).BeginGroup = True
 
-        i = i + 1
+    i = i + 1
     prop(i).Caption = "変更をコミット(&C)"
     prop(i).OnAction = "ModuleGit.GitCommit"
     prop(i).FaceId = 534
@@ -59,7 +59,6 @@ Private Function MenuItemSetting() As ItemProperties()
     prop(i).OnAction = "ModuleGit.GitPush"
     prop(i).FaceId = 533
     prop(i).BeginGroup = False
-
     
     ' ---- メニュー終了 ------------------------------------------------------------
     
@@ -129,7 +128,7 @@ Private Sub Workbook_Open()
     
 End Sub
 
-Function IsArrayInitialized(arr() As IClassBase) As Boolean
+Private Function IsArrayInitialized(arr() As IClassBase) As Boolean
     On Error GoTo Catch
     IsArrayInitialized = IsNumeric(UBound(arr))
     Exit Function

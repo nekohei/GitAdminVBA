@@ -2,7 +2,7 @@ Attribute VB_Name = "ModuleGit"
 Option Explicit
 
 ' ルートの親フォルダ
-Public Const ParentDir As String = "C:¥Users¥1784¥Source¥Repos¥VBA"  ' "C:¥Users¥pckohei¥source¥repos¥VBA"
+Public Const ParentDir As String = "Source¥Repos¥VBA_TEST"
 ' Git設定ファイルの内容が埋め込まれているモジュール名
 Private Const ContentsModuleName As String = "ModuleGitFilesContents"
 ' 作業用一時ファイル名
@@ -28,21 +28,45 @@ Public Sub OutputError(errPlace As String, Optional errNote As String)
     Debug.Print msg
 End Sub
 
+Public Sub CreateReposDir()
+    
+    If SetReposName = -1 Then Exit Sub
+    
+    ' リポジトリフォルダ作成
+    Dim reposDir As String: reposDir = GetRootDir
+    If reposDir = "" Then Exit Sub
+    Call CreateDirIfThereNo(reposDir)
+
+    ' サブフォルダ作成
+    Dim fso As Object: Set fso = CreateObject("Scripting.FileSystemObject")
+    fso.CreateFolder reposDir & "¥.vscode"
+    fso.CreateFolder reposDir & "¥bin"
+    fso.CreateFolder reposDir & "¥src"
+    Dim srcDir As String: srcDir = reposDir & "¥src¥" & ActiveWorkbook.Name
+    fso.CreateFolder srcDir
+    Set fso = Nothing
+
+    ' Git設定ファイル作成
+    Call GenerateGitFiles(reposDir, srcDir)
+    
+End Sub
+
 ' 引数のフォルダパスが存在しない場合に作る
 Public Sub CreateDirIfThereNo(dirPath As String)
-    Dim fso As Object:   Set fso = CreateObject("Scripting.FileSystemObject")
-    Dim flds As Variant:    flds = Split(dirPath, "¥")
 
-    Dim i As Integer, fld As String
-    For i = 0 To UBound(flds)
-        fld = fld & flds(i) & "¥"
-        If fld = "¥¥" Then
+    Dim fso As Object:   Set fso = CreateObject("Scripting.FileSystemObject")
+    Dim dirs As Variant:    dirs = Split(dirPath, "¥")
+
+    Dim i As Integer, dr As String
+    For i = 0 To UBound(dirs)
+        dr = dr & dirs(i) & "¥"
+        If dr = "¥¥" Then
             i = i + 1
-            fld = fld & flds(i) & "¥"
-        ElseIf Not fso.FolderExists(fld) Then
-            fso.CreateFolder fld
+            dr = dr & dirs(i) & "¥"
+        ElseIf Not fso.FolderExists(dr) Then
+            fso.CreateFolder dr
         End If
-    Next i
+    Next
 
     Set fso = Nothing
 
@@ -55,40 +79,32 @@ Public Sub GenerateUTF8(txt As String, filePath As String)
     
     Set sm = CreateObject("ADODB.Stream")
     With sm
-        .Type = 2               ' 文字列
-        .Charset = "utf-8"      ' 文字コード指定
-        .Open
-        .WriteText txt          ' 文字列を書き込む
-        .Position = 0           ' streamの先頭に移動
-        .Type = 1               ' バイナリー
-        .Position = 3           ' streamの先頭から3バイトをスキップ
-        binData = .Read         ' バイナリー取得
-        .Close: Set sm = Nothing
+        .Type = 2                ' 文字列
+        .Charset = "utf-8"       ' 文字コード指定
+        .Open                    ' 開く
+        .WriteText txt           ' 文字列を書き込む
+        .Position = 0            ' streamの先頭に移動
+        .Type = 1                ' バイナリー
+        .Position = 3            ' streamの先頭から3バイトをスキップ
+        binData = .Read          ' バイナリー取得
+        .Close: Set sm = Nothing ' 閉じて解放
     End With
     
     Set sm = CreateObject("ADODB.Stream")
     With sm
-        .Type = 1               ' バイナリー
-        .Open
-        .Write binData          ' バイナリーデータを書き込む
-        .SaveToFile filePath, 2 ' 保存
-        .Close: Set sm = Nothing
+        .Type = 1                ' バイナリー
+        .Open                    ' 開く
+        .Write binData           ' バイナリーデータを書き込む
+        .SaveToFile filePath, 2  ' 保存
+        .Close: Set sm = Nothing ' 閉じて解放
     End With
 
 End Sub
 
 ' Git設定ファイルの作成
-Public Sub GenerateGitFiles()
+Public Sub GenerateGitFiles(rootDir As String, srcDir As String)
     
     If Application.VBE.ActiveVBProject Is Nothing Then Exit Sub
-    
-    Dim reposName As String: reposName = ActiveWorkbook.BuiltinDocumentProperties(5).Value
-    Dim xBookName As String: xBookName = ActiveWorkbook.Name
-    Dim rootDir As String: rootDir = ParentDir & "¥" & reposName
-    Call CreateDirIfThereNo(rootDir & "¥.vscode")
-    Dim srcDir As String: srcDir = rootDir & "¥src¥" & xBookName
-    Call CreateDirIfThereNo(srcDir)
-    Dim filePath As String: filePath = srcDir & "¥"
     
     Dim txt As String, fileName As String
     With ThisWorkbook.VBProject.VBComponents(ContentsModuleName).CodeModule
@@ -104,12 +120,12 @@ Public Sub GenerateGitFiles()
                 iLine = Mid(RTrim(iLine), 2)
                 txt = txt & iLine & vbCrLf
             End If
-            ' 空白行または終端行ならテキスト作成
+            ' 空白行または最終行ならテキスト作成
             If (Trim(iLine) = "" Or i = .CountOfLines) And Trim(txt) <> "" Then
                 If fileName = "settings.json" Then
                     Call GenerateUTF8(txt, rootDir & "¥.vscode¥" & fileName)
                 Else
-                    Call GenerateUTF8(txt, filePath & fileName)
+                    Call GenerateUTF8(txt, srcDir & "¥" & fileName)
                 End If
             End If
         Next
@@ -118,7 +134,7 @@ Public Sub GenerateGitFiles()
 End Sub
 
 ' xBookブックをsrcフォルダにExport
-Private Sub ExportCodeModules(ByVal xBook As Workbook, ByVal srcPath As String)
+Private Sub ExportCodeModules(ByVal xBook As Workbook, ByVal srcDir As String)
     On Error GoTo Catch
     Dim vbPjt As VBIDE.VBProject: Set vbPjt = xBook.VBProject
     
@@ -126,13 +142,13 @@ Private Sub ExportCodeModules(ByVal xBook As Workbook, ByVal srcPath As String)
     For Each vbCmp In vbPjt.VBComponents
         Select Case vbCmp.Type
             Case vbext_ct_StdModule
-                vbCmp.Export srcPath & "¥" & vbCmp.Name & ".bas"
+                vbCmp.Export srcDir & "¥" & vbCmp.Name & ".bas"
             Case vbext_ct_MSForm
-                vbCmp.Export srcPath & "¥" & vbCmp.Name & ".frm"
+                vbCmp.Export srcDir & "¥" & vbCmp.Name & ".frm"
             Case vbext_ct_ClassModule
-                vbCmp.Export srcPath & "¥" & vbCmp.Name & ".cls"
+                vbCmp.Export srcDir & "¥" & vbCmp.Name & ".cls"
             Case vbext_ct_Document
-                vbCmp.Export srcPath & "¥" & vbCmp.Name & ".dcm"
+                vbCmp.Export srcDir & "¥" & vbCmp.Name & ".dcm"
         End Select
     Next
     GoTo Finally
@@ -142,14 +158,14 @@ Finally:
     ' 何もしない
 End Sub
  
-' コマンドプロンプトをcmd引数で実行
+' コマンドプロンプトでcmd引数を実行
 Private Function RunCmd(cmd As String, Optional showInt As Integer = 0, Optional toWait As Boolean = True) As String
 
     Dim tmpPath As String: tmpPath = Environ$("temp") & "¥" & TempFileName
     Call GenerateUTF8(" ", tmpPath)
     
     Dim wsh As Object: Set wsh = CreateObject("WScript.Shell")
-    Call wsh.Run("cmd /c " & cmd, showInt, toWait)
+    Call wsh.Run("cmd /c " & cmd & " > " & tmpPath, showInt, toWait)
 
     Dim sm As Object: Set sm = CreateObject("ADODB.Stream")
     sm.Type = 2
@@ -190,7 +206,7 @@ Public Sub GitCmd(cmd As GitCommand, Optional arg As String = Empty)
                 Dim fso As Object: Set fso = CreateObject("Scripting.FileSystemObject")
                 Call fso.CopyFile(ActiveWorkbook.FullName, rootDir & "¥bin¥" & ActiveWorkbook.Name, True)
                 Call Decombine
-                rt = RunCmd("git add . > " & tmpPath)
+                rt = RunCmd("git add ." & tmpPath)
             End If
         Else
             GoTo Finally
@@ -203,11 +219,11 @@ Public Sub GitCmd(cmd As GitCommand, Optional arg As String = Empty)
                 GoTo Finally
             End If
         End If
-        rt = RunCmd("git commit -m """ & arg & """ > " & tmpPath)
+        rt = RunCmd("git commit -m """ & arg & """")
     Case Push
         Dim mBranch As String
         If arg = Empty Then mBranch = "main"
-        rt = RunCmd("git push origin " & mBranch & " > " & tmpPath)
+        rt = RunCmd("git push origin " & mBranch)
     End Select
     Debug.Print rt
     GoTo Finally
@@ -217,7 +233,7 @@ Finally:
     Application.DisplayAlerts = True
 End Sub
 
-' ---メニュー用 開始------------------------------------
+' ---メニュー用 ここから------------------------------------
 '
 Public Sub GitStage()
     Call GitCmd(Stage)
@@ -231,8 +247,7 @@ Public Sub GitPush()
     Call GitCmd(Push)
 End Sub
 '
-' ---メニュー用 終了------------------------------------
-
+' ---メニュー用 ここまで------------------------------------
 
 ' ルートディレクトリを返す
 Private Function GetRootDir() As String
@@ -241,7 +256,7 @@ Private Function GetRootDir() As String
     If reposName = "" Then
         GetRootDir = ""
     Else
-        GetRootDir = ParentDir & "¥" & reposName
+        GetRootDir = Environ$("USERPROFILE") & "¥" & ParentDir & "¥" & reposName
     End If
 End Function
 
@@ -252,21 +267,29 @@ Public Sub Decombine()
     Call ExportCodeModules(ActiveWorkbook, srcPath)
 End Sub
 
-Public Sub SetRepositoryName()
+' リポジトリ名をブックプロパティのコメント欄に記録
+Public Function SetReposName() As Integer
     Dim reposName As String: reposName = ActiveWorkbook.BuiltinDocumentProperties(5).Value
     If reposName = "" Then
-        reposName = InputBox("リポジトリー名を英字で入力してください。")
-        If reposName = "" Then Exit Sub
+        reposName = InputBox("リポジトリ名を英字で入力してください。")
+        If reposName = "" Then
+            SetReposName = -1
+            Exit Function
+        End If
         If CheckReposName(reposName) = "" Then
             MsgBox "無効なリポジトリ名です。", vbInformation
-            Exit Sub
+            SetReposName = -1
+            Exit Function
         End If
         ActiveWorkbook.BuiltinDocumentProperties(5).Value = reposName
+        SetReposName = 1
+    Else
+        SetReposName = 0
     End If
-End Sub
+End Function
 
+' リポジトリ名に禁止文字が使われていないかどうかチェック
 Private Function CheckReposName(ByVal stg As String) As String
-    
     Dim i As Integer
     For i = 1 To Len(stg)
         Select Case Asc(Mid(stg, i, 1))
@@ -278,7 +301,6 @@ Private Function CheckReposName(ByVal stg As String) As String
             GoTo Invalid
         End Select
     Next
-    
     CheckReposName = stg
     Exit Function
 Invalid:

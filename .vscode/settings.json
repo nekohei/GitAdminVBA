@@ -6,13 +6,13 @@
       "strings": "off",
       "other": "off"
     },
-    "files.encoding": "utf8",
+    "files.encoding": "utf8"
   },
   "files.encoding": "shiftjis",
   "files.associations": {
     "*.bas": "vb",
     "*.cls": "vb",
     "*.dcm": "vb",
-    "*.frm": "vb",
+    "*.frm": "vb"
   }
 }

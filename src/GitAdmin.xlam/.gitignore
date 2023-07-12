@@ -1,6 +1,5 @@
 *.tmp
-*.xls*
+*.xl*
 ~$*.xl*
-bin/Archive/*
-!bin/*.xl*
+!bin/*
 !src/*

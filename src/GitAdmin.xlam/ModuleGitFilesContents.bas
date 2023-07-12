@@ -19,22 +19,20 @@ Rem .gitattributes
 '
 '# file encording
 '*.bas working-tree-encoding=sjis
+'*.cls working-tree-encoding=sjis
 '*.dcm working-tree-encoding=sjis
 '*.frm working-tree-encoding=sjis
 '
-'*.bas diff=sjis
-'*.dcm diff=sjis
-'*.frm diff=sjis
-'
 '*.bas encoding=sjis
+'*.cls encoding=sjis
 '*.dcm encoding=sjis
 '*.frm encoding=sjis
 
 Rem .gitignore
 '*.tmp
-'*.xls*
+'*.xl*
 '‾$*.xl*
-'!bin/base_xls/*.xls*
+'!bin/*
 '!src/*
 
 Rem settings.json
@@ -46,13 +44,13 @@ Rem settings.json
 '      "strings": "off",
 '      "other": "off"
 '    },
-'    "files.encoding": "utf8",
+'    "files.encoding": "utf8"
 '  },
 '  "files.encoding": "shiftjis",
 '  "files.associations": {
 '    "*.bas": "vb",
 '    "*.cls": "vb",
 '    "*.dcm": "vb",
-'    "*.frm": "vb",
+'    "*.frm": "vb"
 '  }
 '}

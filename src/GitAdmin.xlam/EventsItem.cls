@@ -13,7 +13,7 @@ Implements IClassBase
 Private WithEvents MenuItem As VBIDE.CommandBarEvents
 Attribute MenuItem.VB_VarHelpID = -1
 
-' メンテナンス用
+' 繝｡繝ｳ繝�繝翫Φ繧ｹ逕ｨ
 Private Sub Class_Terminate()
     Set MenuItem = Nothing
 End Sub
