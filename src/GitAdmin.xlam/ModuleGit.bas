@@ -2,7 +2,7 @@ Attribute VB_Name = "ModuleGit"
 Option Explicit
 
 ' ルートの親フォルダ
-Public Const ParentDir As String = "Source¥Repos¥VBA_TEST"
+Public Const ParentDir As String = "Source¥Repos¥VBA"
 ' Git設定ファイルの内容が埋め込まれているモジュール名
 Private Const ContentsModuleName As String = "ModuleGitFilesContents"
 ' 作業用一時ファイル名
@@ -20,7 +20,7 @@ Public Sub OutputError(errPlace As String, Optional errNote As String)
     msg = vbCrLf
     msg = "日時：" & Format$(Now(), "yyyy/mm/dd hh:nn:ss") & vbCrLf
     msg = msg & "ソース：" & Err.Source & vbCrLf
-    msg = msg & "ブック名：" & ActiveWorkbook.Name & vbCrLf
+    msg = msg & "ブック名：" & ActiveWorkbook.name & vbCrLf
     msg = msg & "場所：" & errPlace & vbCrLf
     msg = msg & "備考：" & errNote & vbCrLf
     msg = msg & "エラー番号：" & Err.Number & vbCrLf
@@ -42,7 +42,7 @@ Public Sub CreateReposDir()
     fso.CreateFolder reposDir & "¥.vscode"
     fso.CreateFolder reposDir & "¥bin"
     fso.CreateFolder reposDir & "¥src"
-    Dim srcDir As String: srcDir = reposDir & "¥src¥" & ActiveWorkbook.Name
+    Dim srcDir As String: srcDir = reposDir & "¥src¥" & ActiveWorkbook.name
     fso.CreateFolder srcDir
     Set fso = Nothing
 
@@ -142,13 +142,13 @@ Private Sub ExportCodeModules(ByVal xBook As Workbook, ByVal srcDir As String)
     For Each vbCmp In vbPjt.VBComponents
         Select Case vbCmp.Type
             Case vbext_ct_StdModule
-                vbCmp.Export srcDir & "¥" & vbCmp.Name & ".bas"
+                vbCmp.Export srcDir & "¥" & vbCmp.name & ".bas"
             Case vbext_ct_MSForm
-                vbCmp.Export srcDir & "¥" & vbCmp.Name & ".frm"
+                vbCmp.Export srcDir & "¥" & vbCmp.name & ".frm"
             Case vbext_ct_ClassModule
-                vbCmp.Export srcDir & "¥" & vbCmp.Name & ".cls"
+                vbCmp.Export srcDir & "¥" & vbCmp.name & ".cls"
             Case vbext_ct_Document
-                vbCmp.Export srcDir & "¥" & vbCmp.Name & ".dcm"
+                vbCmp.Export srcDir & "¥" & vbCmp.name & ".dcm"
         End Select
     Next
     GoTo Finally
@@ -194,17 +194,17 @@ Public Sub GitCmd(cmd As GitCommand, Optional arg As String = Empty)
     Dim rt As String
     Select Case cmd
     Case Stage
-        If MsgBox(ActiveWorkbook.Name & " の変更をステージします。" & vbLf & vbLf & _
-                  ActiveWorkbook.Name & " の保存とエクスポートを伴います。", vbInformation + vbOKCancel) = vbOK Then
+        If MsgBox(ActiveWorkbook.name & " の変更をステージします。" & vbLf & vbLf & _
+                  ActiveWorkbook.name & " の保存とエクスポートを伴います。", vbInformation + vbOKCancel) = vbOK Then
             Application.DisplayAlerts = False
-            If ActiveWorkbook.Path = rootDir & "¥bin" Then
-                MsgBox "binフォルダ内の" & ActiveWorkbook.Name & "を開いたままステージ出来ません。" & vbLf & _
+            If ActiveWorkbook.path = rootDir & "¥bin" Then
+                MsgBox "binフォルダ内の" & ActiveWorkbook.name & "を開いたままステージ出来ません。" & vbLf & _
                        "ステージはキャンセルされました。, vbInformation"
                 GoTo Finally
             Else
                 ActiveWorkbook.Save
                 Dim fso As Object: Set fso = CreateObject("Scripting.FileSystemObject")
-                Call fso.CopyFile(ActiveWorkbook.FullName, rootDir & "¥bin¥" & ActiveWorkbook.Name, True)
+                Call fso.CopyFile(ActiveWorkbook.FullName, rootDir & "¥bin¥" & ActiveWorkbook.name, True)
                 Call Decombine
                 rt = RunCmd("git add ." & tmpPath)
             End If
@@ -262,12 +262,12 @@ End Function
 
 ' srcフォルダを指定してActiveWorkbookをExport
 Public Sub Decombine()
-    Dim srcPath As String: srcPath = GetRootDir & "¥src¥" & ActiveWorkbook.Name
+    Dim srcPath As String: srcPath = GetRootDir & "¥src¥" & ActiveWorkbook.name
     Call CreateDirIfThereNo(srcPath)
     Call ExportCodeModules(ActiveWorkbook, srcPath)
 End Sub
 
-' リポジトリ名をブックプロパティのコメント欄に記録
+' リポジトリ名をブックのプロパティのコメント欄に記録
 Public Function SetReposName() As Integer
     Dim reposName As String: reposName = ActiveWorkbook.BuiltinDocumentProperties(5).Value
     If reposName = "" Then
@@ -305,5 +305,60 @@ Private Function CheckReposName(ByVal stg As String) As String
     Exit Function
 Invalid:
     CheckReposName = ""
+End Function
+
+Sub ImportDocument(path As String, xlBook As Workbook)
+    Dim compos As VBComponents
+    Set compos = xlBook.VBProject.VBComponents
+    
+    Dim impCompo As VBComponent
+    Set impCompo = compos.Import(path)
+    
+    Dim origCompo As VBComponent
+    Dim cname As String, bname As String
+    cname = impCompo.name
+    bname = GetNameFromPath(path) ' Assuming you have a function to get name from path
+    
+    If cname <> bname Then
+        Set origCompo = compos.Item(bname)
+    Else
+        Dim sht As Worksheet
+        Set sht = xlBook.Worksheets.Add()
+        Set origCompo = compos.Item(sht.CodeName)
+        
+        Dim tmpname As String
+        tmpname = "ImportTemp"
+        While ComponentExists(compos, tmpname)
+            tmpname = tmpname & "1"
+        Wend
+        
+        impCompo.name = tmpname
+        origCompo.name = cname
+    End If
+    
+    Dim imod As CodeModule, omod As CodeModule
+    Set imod = impCompo.CodeModule
+    Set omod = origCompo.CodeModule
+    omod.DeleteLines 1, omod.CountOfLines
+    omod.AddFromString imod.Lines(1, imod.CountOfLines)
+    
+    compos.Remove impCompo
+End Sub
+
+Function GetNameFromPath(path As String) As String
+    ' Function to get name from path
+    GetNameFromPath = Mid(path, InStrRev(path, "¥") + 1, Len(path))
+End Function
+
+Function ComponentExists(compos As VBComponents, name As String) As Boolean
+    Dim c As VBComponent
+    On Error Resume Next
+    Set c = compos.Item(name)
+    If Err.Number = 0 Then
+        ComponentExists = True
+    Else
+        ComponentExists = False
+    End If
+    On Error GoTo 0
 End Function
 

@@ -144,7 +144,7 @@ End Sub
 Private Sub test2()
     Dim cmdbar As CommandBar
     For Each cmdbar In Application.VBE.CommandBars
-        Debug.Print Format(cmdbar.Index, "00") & " - " & cmdbar.Name
+        Debug.Print Format(cmdbar.Index, "00") & " - " & cmdbar.name
     Next
 End Sub
 
