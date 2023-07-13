@@ -23,11 +23,6 @@ Rem .gitattributes
 '*.dcm working-tree-encoding=sjis
 '*.frm working-tree-encoding=sjis
 '
-'*.bas diff=sjis
-'*.cls diff=sjis
-'*.dcm diff=sjis
-'*.frm diff=sjis
-'
 '*.bas encoding=sjis
 '*.cls encoding=sjis
 '*.dcm encoding=sjis
@@ -49,7 +44,7 @@ Rem settings.json
 '      "strings": "off",
 '      "other": "off"
 '    },
-'    "files.encoding": "utf8"
+'    "files.encoding": "utf8",
 '  },
 '  "files.encoding": "shiftjis",
 '  "files.associations": {

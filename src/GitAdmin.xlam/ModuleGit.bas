@@ -42,13 +42,22 @@ Public Sub CreateReposDir()
     fso.CreateFolder reposDir & "¥.vscode"
     fso.CreateFolder reposDir & "¥bin"
     fso.CreateFolder reposDir & "¥src"
-    Dim srcDir As String: srcDir = reposDir & "¥src¥" & ActiveWorkbook.name
+    Dim srcDir As String: srcDir = reposDir & "¥src" '¥" & ActiveWorkbook.name
     fso.CreateFolder srcDir
-    Set fso = Nothing
 
     ' Git設定ファイル作成
     Call GenerateGitFiles(reposDir, srcDir)
     
+    ' binフォルダにブックをコピー
+    ActiveWorkbook.Save
+    Call fso.CopyFile(ActiveWorkbook.FullName, reposDir & "¥bin¥" & ActiveWorkbook.name, True)
+    Set fso = Nothing
+    
+    ' srcフォルダにCodeModuleをExport
+    Call Decombine
+    
+    MsgBox ActiveWorkbook.name & " 用のリポジトリの準備ができました。", vbInformation
+
 End Sub
 
 ' 引数のフォルダパスが存在しない場合に作る

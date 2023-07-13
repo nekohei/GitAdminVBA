@@ -31,8 +31,8 @@ Private Function MenuItemSetting() As ItemProperties()
     ' ---- メニュー開始 ------------------------------------------------------------
 
     i = i + 1
-    prop(i).Caption = "Gitファイルを出力"
-    prop(i).OnAction = "ModuleGit.GenerateGitFiles"
+    prop(i).Caption = "VBA用リポジトリフォルダ作成"
+    prop(i).OnAction = "ModuleGit.CreateReposDir"
     prop(i).FaceId = 1552
     prop(i).BeginGroup = False
     
