@@ -9,9 +9,10 @@ Private Const ContentsModuleName As String = "ModuleGitFilesContents"
 Private Const TempFileName = "TempGitOutput"
 ' GitCmd引数用
 Public Enum GitCommand
-    Stage = 1
-    Commit = 2
-    Push = 3
+    Status
+    Stage
+    Commit
+    Push
 End Enum
 
 ' エラー出力
@@ -39,11 +40,11 @@ Public Sub CreateReposDir()
 
     ' サブフォルダ作成
     Dim fso As Object: Set fso = CreateObject("Scripting.FileSystemObject")
-    fso.CreateFolder reposDir & "¥.vscode"
-    fso.CreateFolder reposDir & "¥bin"
-    fso.CreateFolder reposDir & "¥src"
-    Dim srcDir As String: srcDir = reposDir & "¥src" '¥" & ActiveWorkbook.name
-    fso.CreateFolder srcDir
+    If Not fso.FolderExists(reposDir & "¥.vscode") Then fso.CreateFolder reposDir & "¥.vscode"
+    If Not fso.FolderExists(reposDir & "¥bin") Then fso.CreateFolder reposDir & "¥bin"
+    If Not fso.FolderExists(reposDir & "¥src") Then fso.CreateFolder reposDir & "¥src"
+    Dim srcDir As String: srcDir = reposDir & "¥src¥" & ActiveWorkbook.name
+    If Not fso.FolderExists(srcDir) Then fso.CreateFolder srcDir
 
     ' Git設定ファイル作成
     Call GenerateGitFiles(reposDir, srcDir)
@@ -169,13 +170,47 @@ End Sub
  
 ' コマンドプロンプトでcmd引数を実行
 Private Function RunCmd(cmd As String, Optional showInt As Integer = 0, Optional toWait As Boolean = True) As String
+    On Error GoTo Catch
+    Dim fso As Object: Set fso = CreateObject("Scripting.FileSystemObject")
+    Dim msgPath As String: msgPath = Environ$("temp") & "¥gitTmp.log"
+    Dim errPath As String: errPath = Environ$("temp") & "¥gitErr.log"
+    Dim wsh As Object: Set wsh = CreateObject("WScript.Shell")
+    Dim rt As Long: rt = wsh.Run("cmd /c " & cmd & " > " & msgPath & " 2> " & errPath, showInt, toWait)
+    Dim tmpPath As String
+    If rt = 0 Then
+        tmpPath = msgPath
+    Else
+        tmpPath = errPath
+    End If
+    Dim sm As Object: Set sm = CreateObject("ADODB.Stream")
+    sm.Type = 2
+    sm.Charset = "utf-8"
+    sm.Open
+    sm.LoadFromFile tmpPath
+    Dim msg As String: msg = sm.ReadText & "/// " & CurDir & " ///"
+    sm.Close: Set sm = Nothing
+    GoTo Finally
+Catch:
+    OutputError "RunCmd"
+Finally:
+    If fso.FileExists(msgPath) Then fso.DeleteFile msgPath
+    If fso.FileExists(errPath) Then fso.DeleteFile errPath
+    Set fso = Nothing
+    RunCmd = msg
+End Function
 
+Private Function RunPowerShell(cmd As String, Optional showInt As Integer = 0, Optional toWait As Boolean = False) As String
+    
     Dim tmpPath As String: tmpPath = Environ$("temp") & "¥" & TempFileName
     Call GenerateUTF8(" ", tmpPath)
     
     Dim wsh As Object: Set wsh = CreateObject("WScript.Shell")
-    Call wsh.Run("cmd /c " & cmd & " > " & tmpPath, showInt, toWait)
-
+    '  -NoLogo (見出しを出さない)
+    '  -ExecutionPolicy RemoteSigned (実行権限を設定)
+    '  -Command (PowerShellのコマンドレット構文を記載）
+    Call wsh.Run("powershell -NoLogo -ExecutionPolicy RemoteSigned -Command """ & cmd & _
+                 " | Out-File -filePath " & tmpPath & " -encoding utf8""", showInt, toWait)
+                 
     Dim sm As Object: Set sm = CreateObject("ADODB.Stream")
     sm.Type = 2
     sm.Charset = "utf-8"
@@ -184,24 +219,50 @@ Private Function RunCmd(cmd As String, Optional showInt As Integer = 0, Optional
     Dim tmp As String: tmp = sm.ReadText
     sm.Close: Set sm = Nothing
     
-    RunCmd = tmp
+    RunPowerShell = tmp
 
 End Function
 
+Sub Cls()
+    If Application.VBE.ActiveWindow.Caption = "イミディエイト" Then
+        Application.SendKeys "^a", False
+        Application.SendKeys "{Del}", False
+    End If
+End Sub
+
+Sub CheckEncoding()
+    Dim en As Object: Set en = CreateObject("System.Text.UTF8Encoding")
+'    Dim sjis As Object: Set sjis = en.GetEncoding("shift_jis")
+    Dim bin As Variant: bin = en.GetBytes_4("依頼NO.")
+    Dim deco As Object: Set deco = en.GetDecoder
+
+End Sub
+
+Function ExtractProjectName(fullURL As String) As String
+    Dim startCut As Integer: startCut = InStrRev(fullURL, "/") + 1
+    Dim endCut   As Integer: endCut = InStr(1, fullURL, ".git")
+    ExtractProjectName = Mid(fullURL, startCut, endCut - startCut)
+End Function
+
 ' Gitコマンドを実行
-Public Sub GitCmd(cmd As GitCommand, Optional arg As String = Empty)
+Public Function GitCmd(cmd As GitCommand, Optional arg As String = Empty, Optional isPowerShell As Boolean = False) As Integer
     On Error GoTo Catch
     Dim rootDir As String: rootDir = GetRootDir
     If rootDir = "" Then
-        MsgBox "リポジトリ名が登録されていません。", vbInformation
-        Exit Sub
+        MsgBox """" & ActiveWorkbook.name & """" & vbLf & vbLf & "リポジトリ名が登録されていません。", vbInformation
+        Exit Function
     End If
+    
     Call ChDir(rootDir)
-    Dim tmpPath As String: tmpPath = Environ$("temp") & "¥TempGitOutput"
-    Call GenerateUTF8("_", tmpPath)
     
     Dim rt As String
     Select Case cmd
+    Case Status
+        If isPowerShell Then
+            rt = RunPowerShell("git status")
+        Else
+            rt = RunCmd("git status")
+        End If
     Case Stage
         If MsgBox(ActiveWorkbook.name & " の変更をステージします。" & vbLf & vbLf & _
                   ActiveWorkbook.name & " の保存とエクスポートを伴います。", vbInformation + vbOKCancel) = vbOK Then
@@ -215,7 +276,11 @@ Public Sub GitCmd(cmd As GitCommand, Optional arg As String = Empty)
                 Dim fso As Object: Set fso = CreateObject("Scripting.FileSystemObject")
                 Call fso.CopyFile(ActiveWorkbook.FullName, rootDir & "¥bin¥" & ActiveWorkbook.name, True)
                 Call Decombine
-                rt = RunCmd("git add ." & tmpPath)
+                If isPowerShell Then
+                    rt = RunPowerShell("git add .")
+                Else
+                    rt = RunCmd("git add .")
+                End If
             End If
         Else
             GoTo Finally
@@ -228,11 +293,19 @@ Public Sub GitCmd(cmd As GitCommand, Optional arg As String = Empty)
                 GoTo Finally
             End If
         End If
-        rt = RunCmd("git commit -m """ & arg & """")
+        If isPowerShell Then
+            rt = RunPowerShell("git commit -m """ & arg & """")
+        Else
+            rt = RunCmd("git commit -m """ & arg & """")
+        End If
     Case Push
         Dim mBranch As String
         If arg = Empty Then mBranch = "main"
-        rt = RunCmd("git push origin " & mBranch)
+        If isPowerShell Then
+            rt = RunPowerShell("git push origin " & mBranch)
+        Else
+            rt = RunCmd("git push origin " & mBranch)
+        End If
     End Select
     Debug.Print rt
     GoTo Finally
@@ -240,7 +313,7 @@ Catch:
     OutputError "GitCmd"
 Finally:
     Application.DisplayAlerts = True
-End Sub
+End Function
 
 ' ---メニュー用 ここから------------------------------------
 '
@@ -371,3 +444,27 @@ Function ComponentExists(compos As VBComponents, name As String) As Boolean
     On Error GoTo 0
 End Function
 
+Public Sub GitInit()
+    On Error GoTo Catch
+    Dim urlStr As String: urlStr = InputBox("リモートリポジトリのURLを入力してください。")
+    If urlStr = "" Then GoTo Finally
+    Dim reposName As String: reposName = ExtractProjectName(urlStr)
+    ActiveWorkbook.BuiltinDocumentProperties(5).Value = reposName
+    Dim reposPath As String: reposPath = Environ$("USERPROFILE") & "¥" & ParentDir & "¥" & reposName
+    Call ChDir(reposPath)
+            
+    Dim cmdStr As String: cmdStr = "echo # & " & reposName & " >> README.md"
+    Dim rt As Long: rt = RunCmd(cmdStr)
+    rt = GitCmd(Stage)
+    rt = GitCmd(Commit, "リポジトリ開始")
+    cmdStr = "git branch -M main"
+    rt = RunCmd(cmdStr)
+    cmdStr = "git remote add origin " & urlStr
+    rt = RunCmd(cmdStr)
+    rt = GitCmd(Push)
+    GoTo Finally
+Catch:
+    OutputError "GitInit"
+Finally:
+    
+End Sub

@@ -12,7 +12,7 @@ Option Explicit
 Private Const Caption As String = "Git管理(&G)"
 Private Const MaxIndex As Long = 5
 
-Private newEventsItems() As IClassBase
+Private newEventsItems() As EventsItem
 
 Private Type ItemProperties
     FullName As String
@@ -128,7 +128,7 @@ Private Sub Workbook_Open()
     
 End Sub
 
-Private Function IsArrayInitialized(arr() As IClassBase) As Boolean
+Private Function IsArrayInitialized(arr() As EventsItem) As Boolean
     On Error GoTo Catch
     IsArrayInitialized = IsNumeric(UBound(arr))
     Exit Function
@@ -148,3 +148,7 @@ Private Sub test2()
     Next
 End Sub
 
+Private Sub test3()
+    Application.VBE.CommandBars(13).Controls(0).SetFocus
+End Sub
+    
