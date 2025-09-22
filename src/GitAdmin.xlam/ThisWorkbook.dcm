@@ -9,146 +9,65 @@ Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = True
 Option Explicit
 
-Private Const Caption As String = "Git管理(&G)"
-Private Const MaxIndex As Long = 5
+Rem イベント配列
+Private WithEvents mGitEventsItems As GitEventsItems
+Attribute mGitEventsItems.VB_VarHelpID = -1
+Private Const mCaption As String = "Git管理(&G)"
 
-Private newEventsItems() As EventsItem
+Rem イベントから伝播されたメニュー項目を判別して処理分岐
+Private Sub mGitEventsItems_Click(ByVal ctl As Object, handled As Boolean, cancelDefault As Boolean)
+    Rem Indexは登録順に1から自動的に振られる
+    Select Case ctl.Index
+        Case 1: Call CreateNewRepository
+        Case 2: Call GitStage
+        Case 3: Call GitCommit
+        Case 4: Call GitPush
+        Case 5: Call RegisterToken
+        Case 6: Call DeleteToken
+    End Select
+End Sub
 
-Private Type ItemProperties
-    FullName As String
-    Caption As String
-    OnAction As String
-    FaceId As Long
-    BeginGroup As Boolean
-End Type
-
-Private Function MenuItemSetting() As ItemProperties()
-    
-    Dim prop(1 To MaxIndex) As ItemProperties ' 【要注意】MaxIndexをメニュー数にする
-    
-    Dim i As Long
-    
-    ' ---- メニュー開始 ------------------------------------------------------------
-
-    i = i + 1
-    prop(i).Caption = "VBA用リポジトリフォルダ作成"
-    prop(i).OnAction = "ModuleGit.CreateReposDir"
-    prop(i).FaceId = 1552
-    prop(i).BeginGroup = False
-    
-    i = i + 1
-    prop(i).Caption = "コードモジュールを出力"
-    prop(i).OnAction = "ModuleGit.Decombine"
-    prop(i).FaceId = 461
-    prop(i).BeginGroup = True
-    
-    i = i + 1
-    prop(i).Caption = "変更をステージ(&S)"
-    prop(i).OnAction = "ModuleGit.GitStage"
-    prop(i).FaceId = 535
-    prop(i).BeginGroup = True
-
-    i = i + 1
-    prop(i).Caption = "変更をコミット(&C)"
-    prop(i).OnAction = "ModuleGit.GitCommit"
-    prop(i).FaceId = 534
-    prop(i).BeginGroup = False
-
-    i = i + 1
-    prop(i).Caption = "変更をプッシュ(&P)"
-    prop(i).OnAction = "ModuleGit.GitPush"
-    prop(i).FaceId = 533
-    prop(i).BeginGroup = False
-    
-    ' ---- メニュー終了 ------------------------------------------------------------
-    
-    Dim FullName As String: FullName = ThisWorkbook.FullName
-    For i = LBound(prop) To UBound(prop)
-        prop(i).FullName = FullName
-    Next
-    
-    MenuItemSetting = prop
-
-End Function
-
-Private Sub Workbook_BeforeClose(Cancel As Boolean)
-    
-    ' 配列がリセットされてしまっている場合への対応
-    If IsArrayInitialized(newEventsItems) Then
-    
-        Dim i As Long
-        For i = LBound(newEventsItems) To UBound(newEventsItems)
-            Set newEventsItems(i) = Nothing
-        Next
-        
-        Erase newEventsItems
-        
-    End If
-    
-    ' VBEのメニューバーを取得（メニューバーのIndexは、固定値で「1」）
-    Dim VBEMenuBar As CommandBar
-    Set VBEMenuBar = Application.VBE.CommandBars(1)
-    
+Private Sub Workbook_BeforeClose(ByRef Cancel As Boolean)
+    On Error GoTo Catch
+    Rem ワークシート編集をした場合に備えて常にアドインとして再設定
+    Me.IsAddin = True
+    Rem VBEのメニューバーを取得（メニューバーのIndexは、固定値で "1"）
+    Dim VBEMenuBar As CommandBar: Set VBEMenuBar = Application.VBE.CommandBars(1)
+    Rem メニュー項目を削除
     Dim itm As CommandBarControl
-    For Each itm In VBEMenuBar.Controls(Caption).Controls
+    For Each itm In VBEMenuBar.Controls(mCaption).Controls
         itm.Delete
     Next
-    VBEMenuBar.Controls(Caption).Delete
-    
+    Rem メニュー自体を削除
+    VBEMenuBar.Controls(mCaption).Delete
+    Rem イベント配列を解放
+    Set mGitEventsItems = Nothing
+    Exit Sub
+Catch:
+    PrintErr Err, "Workbook_BeforeClose"
 End Sub
 
 Private Sub Workbook_Open()
-    
-    ' VBEのメニューバーを取得（メニューバーのIndexは、固定値で「1」）
-    Dim VBEMenuBar As CommandBar
-    Set VBEMenuBar = Application.VBE.CommandBars(1)
-    
-    ' 新しいメニューを作成
-    Dim newMenu As CommandBarControl
-    Set newMenu = VBEMenuBar.Controls.Add(Type:=msoControlPopup)
-    
-    ' メニューのキャプションを設定
-    newMenu.Caption = Caption
-    
-    Dim prop() As ItemProperties: prop = MenuItemSetting
-    ReDim newEventsItems(LBound(prop) To UBound(prop))
-    Dim i As Long, newMenuItem As CommandBarControl
-    For i = LBound(prop) To UBound(prop)
-        ' メニューにアイテムを追加
-        Set newMenuItem = newMenu.Controls.Add(Type:=msoControlButton)
-        With prop(i)
-            newMenuItem.Caption = .Caption
-            newMenuItem.OnAction = "'" & .FullName & "'!" & .OnAction
-            newMenuItem.FaceId = .FaceId
-            newMenuItem.BeginGroup = .BeginGroup
-        End With
-        ' イベントクラスの登録
-        Set newEventsItems(i) = New EventsItem: Call newEventsItems(i).Initialize(newMenuItem)
-    Next
-    
+    Rem VBEのメニューバーを取得（メニューバーのIndexは、固定値で "1"）
+    Dim VBEMenuBar As CommandBar: Set VBEMenuBar = Application.VBE.CommandBars(1)
+    Rem 新しいメニューを作成
+    Dim newMenu As CommandBarControl: Set newMenu = VBEMenuBar.Controls.Add(Type:=msoControlPopup)
+    newMenu.Caption = mCaption
+    Rem イベント配列を生成
+    Set mGitEventsItems = New GitEventsItems
+    Rem Sheet1の入力内容を基にメニューを組み立て
+    With Sheet1
+        Dim rw As Long: rw = 2
+        Do Until IsEmpty(.Cells(rw, 1).Value)
+            Rem メニュー項目を追加
+            Dim newMenuItem As CommandBarControl: Set newMenuItem = newMenu.Controls.Add(Type:=msoControlButton)
+            newMenuItem.Caption = .Range("Caption").Cells(rw).Value
+            newMenuItem.FaceId = .Range("FaceId").Cells(rw).Value
+            newMenuItem.BeginGroup = CBool(.Range("BeginGroup").Cells(rw).Value)
+            Rem イベント配列にメニュー項目を登録
+            Call mGitEventsItems.AddItem(newMenuItem)
+            rw = rw + 1
+        Loop
+    End With
 End Sub
 
-Private Function IsArrayInitialized(arr() As EventsItem) As Boolean
-    On Error GoTo Catch
-    IsArrayInitialized = IsNumeric(UBound(arr))
-    Exit Function
-Catch:
-    IsArrayInitialized = False
-End Function
-
-
-Private Sub test1()
-    Workbook_BeforeClose False
-End Sub
-
-Private Sub test2()
-    Dim cmdbar As CommandBar
-    For Each cmdbar In Application.VBE.CommandBars
-        Debug.Print Format(cmdbar.Index, "00") & " - " & cmdbar.name
-    Next
-End Sub
-
-Private Sub test3()
-    Application.VBE.CommandBars(13).Controls(0).SetFocus
-End Sub
-    

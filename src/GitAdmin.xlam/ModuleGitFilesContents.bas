@@ -18,21 +18,27 @@ Rem .gitattributes
 '*.vbaproj linguist-language=INI
 '
 '# file encording
-'*.bas working-tree-encoding=sjis
-'*.cls working-tree-encoding=sjis
-'*.dcm working-tree-encoding=sjis
-'*.frm working-tree-encoding=sjis
+'*.bas working-tree-encoding=UTF-8
+'*.cls working-tree-encoding=UTF-8
+'*.dcm working-tree-encoding=UTF-8
+'*.frm working-tree-encoding=UTF-8
 '
-'*.bas encoding=sjis
-'*.cls encoding=sjis
-'*.dcm encoding=sjis
-'*.frm encoding=sjis
+'*.bas encoding=UTF-8
+'*.cls encoding=UTF-8
+'*.dcm encoding=UTF-8
+'*.frm encoding=UTF-8
+'
+'*.bas diff=UTF-8
+'*.cls diff=UTF-8
+'*.dcm diff=UTF-8
+'*.frm diff=UTF-8
 
 Rem .gitignore
 '*.tmp
 '*.xl*
 '‾$*.xl*
-'!bin/*
+'bin/old
+'!bin/*.xl*
 '!src/*
 
 Rem settings.json

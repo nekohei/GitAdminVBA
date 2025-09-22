@@ -2,13 +2,13 @@ Attribute VB_Name = "ModuleGit"
 Option Explicit
 
 ' ルートの親フォルダ
-Public Const ParentDir As String = "Source¥Repos¥VBA"
+Public Const parentDir As String = "Source¥Repos¥VBA"
 ' Git設定ファイルの内容が埋め込まれているモジュール名
 Private Const ContentsModuleName As String = "ModuleGitFilesContents"
-' 作業用一時ファイル名
-Private Const TempFileName = "TempGitOutput"
+
 ' GitCmd引数用
 Public Enum GitCommand
+    Init
     Status
     Stage
     Commit
@@ -16,60 +16,121 @@ Public Enum GitCommand
 End Enum
 
 ' エラー出力
-Public Sub OutputError(errPlace As String, Optional errNote As String)
+Public Sub PrintErr(ByVal errObj As ErrObject, Optional errPlace As String, Optional errNote As String)
     Dim msg As String
-    msg = vbCrLf
-    msg = "日時：" & Format$(Now(), "yyyy/mm/dd hh:nn:ss") & vbCrLf
-    msg = msg & "ソース：" & Err.Source & vbCrLf
-    msg = msg & "ブック名：" & ActiveWorkbook.name & vbCrLf
-    msg = msg & "場所：" & errPlace & vbCrLf
-    msg = msg & "備考：" & errNote & vbCrLf
-    msg = msg & "エラー番号：" & Err.Number & vbCrLf
-    msg = msg & "エラー内容：" & Err.Description & vbCrLf
+    msg = _
+        vbLf & _
+        "DateTime : " & Format$(Now(), "yyyy-mm-dd hh:nn:ss") & vbLf & _
+        "Source   : " & errObj.Source & vbLf & _
+        "BookName : " & ActiveWorkbook.Name & vbLf & _
+        "Place    : " & errPlace & vbLf & _
+        "Note     : " & errNote & vbLf & _
+        "Number   : " & errObj.Number & vbLf & _
+        "Message  : " & errObj.Description & vbLf
     Debug.Print msg
 End Sub
 
-Public Sub CreateReposDir()
+Public Sub CreateNewRepository()
     
-    If SetReposName = -1 Then Exit Sub
+    ' リポジトリ名を設定する
+    Dim xBook As Workbook: Set xBook = ActiveWorkbook
+    Dim repoName As String: repoName = SetAndThenGetReposName(xBook.Name)
+    If repoName = "" Then Exit Sub
     
-    ' リポジトリフォルダ作成
-    Dim reposDir As String: reposDir = GetRootDir
-    If reposDir = "" Then Exit Sub
-    Call CreateDirIfThereNo(reposDir)
+    ' ローカルリポジトリフォルダ作成
+    Dim repoDir As String: repoDir = GetRootDir(xBook.Name)
+    If repoDir = "" Then Exit Sub
+    Call CreateDirIfThereNo(repoDir)
 
-    ' サブフォルダ作成
+    ' ローカルリポジトリフォルダ内のサブフォルダ作成
     Dim fso As Object: Set fso = CreateObject("Scripting.FileSystemObject")
-    If Not fso.FolderExists(reposDir & "¥.vscode") Then fso.CreateFolder reposDir & "¥.vscode"
-    If Not fso.FolderExists(reposDir & "¥bin") Then fso.CreateFolder reposDir & "¥bin"
-    If Not fso.FolderExists(reposDir & "¥src") Then fso.CreateFolder reposDir & "¥src"
-    Dim srcDir As String: srcDir = reposDir & "¥src¥" & ActiveWorkbook.name
+    If Not fso.FolderExists(repoDir & "¥.vscode") Then fso.CreateFolder repoDir & "¥.vscode"
+    If Not fso.FolderExists(repoDir & "¥bin") Then fso.CreateFolder repoDir & "¥bin"
+    If Not fso.FolderExists(repoDir & "¥bin¥old") Then fso.CreateFolder repoDir & "¥bin¥old"
+    If Not fso.FolderExists(repoDir & "¥src") Then fso.CreateFolder repoDir & "¥src"
+    Dim bookName As String: bookName = GetShortBookName(xBook.Name)
+    Dim srcDir As String: srcDir = repoDir & "¥src"
     If Not fso.FolderExists(srcDir) Then fso.CreateFolder srcDir
 
     ' Git設定ファイル作成
-    Call GenerateGitFiles(reposDir, srcDir)
+    Call GenerateGitFiles(repoDir, repoDir)
     
-    ' binフォルダにブックをコピー
-    ActiveWorkbook.Save
-    Call fso.CopyFile(ActiveWorkbook.FullName, reposDir & "¥bin¥" & ActiveWorkbook.name, True)
+    ' ブックを保存してbinフォルダにコピー
+    xBook.Save
+    Call fso.CopyFile(xBook.FullName, repoDir & "¥bin¥" & xBook.Name, True)
     Set fso = Nothing
     
     ' srcフォルダにCodeModuleをExport
-    Call Decombine
+    Call Decombine(xBook.Name)
     
-    MsgBox ActiveWorkbook.name & " 用のリポジトリの準備ができました。", vbInformation
-
+    ' リモートリポジトリの作成
+    If CreateRemoteRepos(bookName, repoName) Then
+        MsgBox bookName & " 用のリポジトリの準備ができました。", vbInformation
+    End If
+    
+    Set xBook = Nothing
 End Sub
 
-' 引数のフォルダパスが存在しない場合に作る
-Public Sub CreateDirIfThereNo(dirPath As String)
+Public Function CreateRemoteRepos(ByVal bookName As String, ByVal repoName As String) As Boolean
+    On Error GoTo Catch
+    Dim rt As Boolean: rt = False
+    
+    ' トークンを取得
+    Dim token As String: token = GetTokenFromRegistry()
+    If Trim(token) = "" Then
+        MsgBox "個人用アクセストークンを登録してください。", vbInformation
+        CreateRemoteRepos = rt
+        Exit Function
+    End If
 
-    Dim fso As Object:   Set fso = CreateObject("Scripting.FileSystemObject")
-    Dim dirs As Variant:    dirs = Split(dirPath, "¥")
+    ' HTTPオブジェクトを生成
+    Dim http     As Object: Set http = CreateObject("MSXML2.XMLHTTP")
+
+    ' GitHub APIのURL
+    Dim url      As String: url = "https://api.github.com/user/repos"
+    http.Open "POST", url, False
+    http.setRequestHeader "Content-Type", "application/json"
+    http.setRequestHeader "Authorization", "token " & token
+
+    ' JSONリクエストボディを作成（アクセス修飾子はprivate）
+    Dim jsonBody As String: jsonBody = "{""name"":""" & repoName & """, ""private"": true}"
+
+    ' リクエストを送信
+    Call http.send(jsonBody)
+
+    ' 結果を表示
+    If http.Status = 201 Then
+        Dim json    As Object: Set json = JsonConverter.ParseJson(http.responseText)
+        Dim repoUrl As String: repoUrl = json("html_url")
+        Call SaveSetting("Excel", bookName, "RepositoryURL", repoUrl)
+        Call GitCmd(Init)
+        MsgBox "リモートリポジトリが作成されました。" & vbCr & vbCr & repoUrl, vbInformation
+        rt = True
+    Else
+        MsgBox "リモートリポジトリの作成に失敗しました。" & vbCr & vbCr & _
+            "Status: " & http.Status & vbCr & http.responseText, vbExclamation
+        rt = False
+    End If
+    GoTo Finally
+Catch:
+    MsgBox Err.Description, vbExclamation
+    rt = False
+Finally:
+    Set http = Nothing
+    Set json = Nothing
+    CreateRemoteRepos = rt
+End Function
+
+' 引数のフォルダパスが存在しない場合に作る
+Public Sub CreateDirIfThereNo(ByVal dirPath As String)
+
+    Dim fso  As Object:  Set fso = CreateObject("Scripting.FileSystemObject")
+    Dim dirs As Variant: dirs = Split(dirPath, "¥")
 
     Dim i As Integer, dr As String
     For i = 0 To UBound(dirs)
         dr = dr & dirs(i) & "¥"
+        ' 共有ネットワークパスを考慮
         If dr = "¥¥" Then
             i = i + 1
             dr = dr & dirs(i) & "¥"
@@ -83,36 +144,38 @@ Public Sub CreateDirIfThereNo(dirPath As String)
 End Sub
 
 ' 引数の文字列でUTF-8テキストファイル作成（標準でBOM付きになる為、BOM除去）
-Public Sub GenerateUTF8(txt As String, filePath As String)
+Public Sub GenerateUTF8(ByVal txt As String, ByVal FilePath As String, Optional ByVal withBom As Boolean = True)
 
-    Dim binData As Variant, sm As Object
+    Dim binData As Variant, sm1 As Object, sm2 As Object
     
-    Set sm = CreateObject("ADODB.Stream")
-    With sm
-        .Type = 2                ' 文字列
-        .Charset = "utf-8"       ' 文字コード指定
-        .Open                    ' 開く
-        .WriteText txt           ' 文字列を書き込む
-        .Position = 0            ' streamの先頭に移動
-        .Type = 1                ' バイナリー
-        .Position = 3            ' streamの先頭から3バイトをスキップ
-        binData = .Read          ' バイナリー取得
-        .Close: Set sm = Nothing ' 閉じて解放
+    Set sm1 = CreateObject("ADODB.Stream")
+    With sm1
+        .Type = 2                 ' 文字列
+        .Charset = "utf-8"        ' 文字コード指定
+        .Open                     ' 開く
+        .WriteText txt            ' 文字列を書き込む
+        .Position = 0             ' streamの先頭に移動
+        .Type = 1                 ' バイナリー
+        If withBom Then
+            .Position = 3         ' streamの先頭から3バイトをスキップ
+        End If
+        binData = .Read           ' バイナリー取得
+        .Close: Set sm1 = Nothing ' 閉じて解放
     End With
     
-    Set sm = CreateObject("ADODB.Stream")
-    With sm
-        .Type = 1                ' バイナリー
-        .Open                    ' 開く
-        .Write binData           ' バイナリーデータを書き込む
-        .SaveToFile filePath, 2  ' 保存
-        .Close: Set sm = Nothing ' 閉じて解放
+    Set sm2 = CreateObject("ADODB.Stream")
+    With sm2
+        .Type = 1                 ' バイナリー
+        .Open                     ' 開く
+        .Write binData            ' バイナリーデータを書き込む
+        .SaveToFile FilePath, 2   ' 保存
+        .Close: Set sm2 = Nothing ' 閉じて解放
     End With
 
 End Sub
 
 ' Git設定ファイルの作成
-Public Sub GenerateGitFiles(rootDir As String, srcDir As String)
+Public Sub GenerateGitFiles(ByVal rootDir As String, ByVal srcDir As String)
     
     If Application.VBE.ActiveVBProject Is Nothing Then Exit Sub
     
@@ -142,145 +205,108 @@ Public Sub GenerateGitFiles(rootDir As String, srcDir As String)
     End With
 
 End Sub
-
-' xBookブックをsrcフォルダにExport
-Private Sub ExportCodeModules(ByVal xBook As Workbook, ByVal srcDir As String)
-    On Error GoTo Catch
-    Dim vbPjt As VBIDE.VBProject: Set vbPjt = xBook.VBProject
-    
-    Dim vbCmp As VBIDE.VBComponent
-    For Each vbCmp In vbPjt.VBComponents
-        Select Case vbCmp.Type
-            Case vbext_ct_StdModule
-                vbCmp.Export srcDir & "¥" & vbCmp.name & ".bas"
-            Case vbext_ct_MSForm
-                vbCmp.Export srcDir & "¥" & vbCmp.name & ".frm"
-            Case vbext_ct_ClassModule
-                vbCmp.Export srcDir & "¥" & vbCmp.name & ".cls"
-            Case vbext_ct_Document
-                vbCmp.Export srcDir & "¥" & vbCmp.name & ".dcm"
-        End Select
-    Next
-    GoTo Finally
-Catch:
-    OutputError "ExportCodeModules"
-Finally:
-    ' 何もしない
-End Sub
  
 ' コマンドプロンプトでcmd引数を実行
-Private Function RunCmd(cmd As String, Optional showInt As Integer = 0, Optional toWait As Boolean = True) As String
+' 標準出力は文字化けする
+Private Function RunCmd(ByVal cmd As String, Optional ByVal showInt As Integer = 0, Optional ByVal toWait As Boolean = True) As String
     On Error GoTo Catch
-    Dim fso As Object: Set fso = CreateObject("Scripting.FileSystemObject")
+    Dim fso     As Object: Set fso = CreateObject("Scripting.FileSystemObject")
     Dim msgPath As String: msgPath = Environ$("temp") & "¥gitTmp.log"
     Dim errPath As String: errPath = Environ$("temp") & "¥gitErr.log"
-    Dim wsh As Object: Set wsh = CreateObject("WScript.Shell")
-    Dim rt As Long: rt = wsh.Run("cmd /c " & cmd & " > " & msgPath & " 2> " & errPath, showInt, toWait)
-    Dim tmpPath As String
+    Dim wsh     As Object: Set wsh = CreateObject("WScript.Shell")
+    Dim rt      As Long:   rt = wsh.Run("cmd /c " & cmd & " > " & msgPath & " 2> " & errPath, showInt, toWait)
+    
+    Dim msg As String
     If rt = 0 Then
-        tmpPath = msgPath
+        msg = "(正常終了 - " & CurDir & ") " & vbCr & cmd
     Else
-        tmpPath = errPath
+        msg = "(異常終了 - " & CurDir & ") " & vbCr & cmd
     End If
-    Dim sm As Object: Set sm = CreateObject("ADODB.Stream")
-    sm.Type = 2
-    sm.Charset = "utf-8"
-    sm.Open
-    sm.LoadFromFile tmpPath
-    Dim msg As String: msg = sm.ReadText & "/// " & CurDir & " ///"
-    sm.Close: Set sm = Nothing
+    
+    Dim msgStream As Object: Set msgStream = CreateObject("ADODB.Stream")
+    msgStream.Type = 2
+    msgStream.Charset = "utf-8"
+    msgStream.Open
+    msgStream.LoadFromFile msgPath
+    Dim msgText As String
+    msgText = msgStream.ReadText
+    msgStream.Close: Set msgStream = Nothing
+    
+    Dim errStream As Object: Set errStream = CreateObject("ADODB.Stream")
+    errStream.Type = 2
+    errStream.Charset = "utf-8"
+    errStream.Open
+    errStream.LoadFromFile errPath
+    Dim errText As String
+    errText = errStream.ReadText
+    errStream.Close: Set errStream = Nothing
+    
+    Select Case True
+    Case Trim(msgText) = "" And Trim(errText) = ""
+        ' 何もしない
+    Case Trim(msgText) <> "" And Trim(errText) = ""
+        msg = msg & vbCr & msgText
+    Case Trim(msgText) = "" And Trim(errText) <> ""
+        msg = msg & vbCr & errText
+    Case Trim(msgText) <> "" And Trim(errText) <> ""
+        msg = msg & vbCr & msgText & vbCr & errText
+    End Select
+    
     GoTo Finally
 Catch:
-    OutputError "RunCmd"
+    PrintErr Err, "RunCmd"
 Finally:
     If fso.FileExists(msgPath) Then fso.DeleteFile msgPath
     If fso.FileExists(errPath) Then fso.DeleteFile errPath
     Set fso = Nothing
+    Set wsh = Nothing
     RunCmd = msg
 End Function
 
-Private Function RunPowerShell(cmd As String, Optional showInt As Integer = 0, Optional toWait As Boolean = False) As String
-    
-    Dim tmpPath As String: tmpPath = Environ$("temp") & "¥" & TempFileName
-    Call GenerateUTF8(" ", tmpPath)
-    
-    Dim wsh As Object: Set wsh = CreateObject("WScript.Shell")
-    '  -NoLogo (見出しを出さない)
-    '  -ExecutionPolicy RemoteSigned (実行権限を設定)
-    '  -Command (PowerShellのコマンドレット構文を記載）
-    Call wsh.Run("powershell -NoLogo -ExecutionPolicy RemoteSigned -Command """ & cmd & _
-                 " | Out-File -filePath " & tmpPath & " -encoding utf8""", showInt, toWait)
-                 
-    Dim sm As Object: Set sm = CreateObject("ADODB.Stream")
-    sm.Type = 2
-    sm.Charset = "utf-8"
-    sm.Open
-    sm.LoadFromFile tmpPath
-    Dim tmp As String: tmp = sm.ReadText
-    sm.Close: Set sm = Nothing
-    
-    RunPowerShell = tmp
-
-End Function
-
-Sub Cls()
-    If Application.VBE.ActiveWindow.Caption = "イミディエイト" Then
-        Application.SendKeys "^a", False
-        Application.SendKeys "{Del}", False
-    End If
-End Sub
-
-Sub CheckEncoding()
-    Dim en As Object: Set en = CreateObject("System.Text.UTF8Encoding")
-'    Dim sjis As Object: Set sjis = en.GetEncoding("shift_jis")
-    Dim bin As Variant: bin = en.GetBytes_4("依頼NO.")
-    Dim deco As Object: Set deco = en.GetDecoder
-
-End Sub
-
-Function ExtractProjectName(fullURL As String) As String
-    Dim startCut As Integer: startCut = InStrRev(fullURL, "/") + 1
-    Dim endCut   As Integer: endCut = InStr(1, fullURL, ".git")
-    ExtractProjectName = Mid(fullURL, startCut, endCut - startCut)
-End Function
-
 ' Gitコマンドを実行
-Public Function GitCmd(cmd As GitCommand, Optional arg As String = Empty, Optional isPowerShell As Boolean = False) As Integer
+Public Function GitCmd(ByVal cmd As GitCommand, Optional ByVal arg As String = Empty, Optional ByVal isPowerShell As Boolean = False) As Integer
     On Error GoTo Catch
-    Dim rootDir As String: rootDir = GetRootDir
+    Dim xBook As Workbook: Set xBook = ActiveWorkbook
+    Dim rootDir As String: rootDir = GetRootDir(xBook.Name)
     If rootDir = "" Then
-        MsgBox """" & ActiveWorkbook.name & """" & vbLf & vbLf & "リポジトリ名が登録されていません。", vbInformation
-        Exit Function
+        MsgBox """" & xBook.Name & """" & vbLf & vbLf & "リポジトリ名が登録されていません。", vbInformation
+        GoTo Finally
     End If
     
     Call ChDir(rootDir)
     
     Dim rt As String
     Select Case cmd
-    Case Status
-        If isPowerShell Then
-            rt = RunPowerShell("git status")
-        Else
-            rt = RunCmd("git status")
+    Case Init
+        Dim bookName As String: bookName = GetShortBookName(xBook.Name)
+        Dim repoUrl  As String: repoUrl = GetSetting("Excel", bookName, "RepositoryURL")
+        If repoUrl = "" Then
+            MsgBox "リモートリポジトリを作成してください。", vbInformation
+            GoTo Finally
         End If
+        rt = RunCmd("git init")
+        rt = rt & vbCr & RunCmd("git add .")
+        rt = rt & vbCr & RunCmd("git commit -m ""リポジトリ開始""")
+        rt = rt & vbCr & RunCmd("git branch -M main")
+        rt = rt & vbCr & RunCmd("git remote add origin " & repoUrl)
+        rt = rt & vbCr & RunCmd("git push -u origin main")
+    Case Status
+        rt = RunCmd("git status")
     Case Stage
-        If MsgBox(ActiveWorkbook.name & " の変更をステージします。" & vbLf & vbLf & _
-                  ActiveWorkbook.name & " の保存とエクスポートを伴います。", vbInformation + vbOKCancel) = vbOK Then
+        If MsgBox(xBook.Name & " の変更をステージします。" & vbLf & vbLf & _
+                  xBook.Name & " の保存とエクスポートを伴います。", vbInformation + vbOKCancel) = vbOK Then
             Application.DisplayAlerts = False
-            If ActiveWorkbook.path = rootDir & "¥bin" Then
-                MsgBox "binフォルダ内の" & ActiveWorkbook.name & "を開いたままステージ出来ません。" & vbLf & _
+            If xBook.path = rootDir & "¥bin" Then
+                MsgBox "binフォルダ内の" & xBook.Name & "を開いたままステージ出来ません。" & vbLf & _
                        "ステージはキャンセルされました。, vbInformation"
                 GoTo Finally
             Else
-                ActiveWorkbook.Save
+                'xBook.Save
                 Dim fso As Object: Set fso = CreateObject("Scripting.FileSystemObject")
-                Call fso.CopyFile(ActiveWorkbook.FullName, rootDir & "¥bin¥" & ActiveWorkbook.name, True)
-                Call Decombine
-                If isPowerShell Then
-                    rt = RunPowerShell("git add .")
-                Else
-                    rt = RunCmd("git add .")
-                End If
+                Call fso.CopyFile(xBook.FullName, rootDir & "¥bin¥" & xBook.Name, True)
+                Call Decombine(xBook.Name)
+                rt = RunCmd("git add .")
+                Set fso = Nothing
             End If
         Else
             GoTo Finally
@@ -293,26 +319,20 @@ Public Function GitCmd(cmd As GitCommand, Optional arg As String = Empty, Option
                 GoTo Finally
             End If
         End If
-        If isPowerShell Then
-            rt = RunPowerShell("git commit -m """ & arg & """")
-        Else
-            rt = RunCmd("git commit -m """ & arg & """")
-        End If
+        rt = RunCmd("git commit -m """ & arg & """")
     Case Push
         Dim mBranch As String
         If arg = Empty Then mBranch = "main"
-        If isPowerShell Then
-            rt = RunPowerShell("git push origin " & mBranch)
-        Else
-            rt = RunCmd("git push origin " & mBranch)
-        End If
+        rt = RunCmd("git push origin " & mBranch)
     End Select
+    If Right(rt, 1) <> vbLf Then rt = rt & vbLf
     Debug.Print rt
     GoTo Finally
 Catch:
-    OutputError "GitCmd"
+    PrintErr Err, "GitCmd"
 Finally:
     Application.DisplayAlerts = True
+    Set xBook = Nothing
 End Function
 
 ' ---メニュー用 ここから------------------------------------
@@ -332,139 +352,293 @@ End Sub
 ' ---メニュー用 ここまで------------------------------------
 
 ' ルートディレクトリを返す
-Private Function GetRootDir() As String
-    Dim reposName As String
-    reposName = ActiveWorkbook.BuiltinDocumentProperties(5).Value
-    If reposName = "" Then
+Private Function GetRootDir(ByVal bookName As String) As String
+    bookName = GetShortBookName(bookName)
+    Dim repoName As String: repoName = GetSetting("Excel", bookName, "RepositoryName")
+    If repoName = "" Then
         GetRootDir = ""
-    Else
-        GetRootDir = Environ$("USERPROFILE") & "¥" & ParentDir & "¥" & reposName
+        Exit Function
     End If
+    GetRootDir = Environ$("USERPROFILE") & "¥" & parentDir & "¥" & repoName
 End Function
 
 ' srcフォルダを指定してActiveWorkbookをExport
-Public Sub Decombine()
-    Dim srcPath As String: srcPath = GetRootDir & "¥src¥" & ActiveWorkbook.name
+Public Sub Decombine(ByVal bookName As String, Optional ByVal includeBookName As Boolean = False)
+    Dim rootDir As String: rootDir = GetRootDir(bookName)
+    If rootDir = "" Then Exit Sub
+    Dim srcPath As String
+    If includeBookName Then
+        srcPath = rootDir & "¥src¥" & GetShortBookName(bookName)
+    Else
+        srcPath = rootDir & "¥src"
+    End If
     Call CreateDirIfThereNo(srcPath)
-    Call ExportCodeModules(ActiveWorkbook, srcPath)
-End Sub
-
-' リポジトリ名をブックのプロパティのコメント欄に記録
-Public Function SetReposName() As Integer
-    Dim reposName As String: reposName = ActiveWorkbook.BuiltinDocumentProperties(5).Value
-    If reposName = "" Then
-        reposName = InputBox("リポジトリ名を英字で入力してください。")
-        If reposName = "" Then
-            SetReposName = -1
-            Exit Function
-        End If
-        If CheckReposName(reposName) = "" Then
-            MsgBox "無効なリポジトリ名です。", vbInformation
-            SetReposName = -1
-            Exit Function
-        End If
-        ActiveWorkbook.BuiltinDocumentProperties(5).Value = reposName
-        SetReposName = 1
-    Else
-        SetReposName = 0
-    End If
-End Function
-
-' リポジトリ名に禁止文字が使われていないかどうかチェック
-Private Function CheckReposName(ByVal stg As String) As String
-    Dim i As Integer
-    For i = 1 To Len(stg)
-        Select Case Asc(Mid(stg, i, 1))
-        Case 0 To 127
-            If InStr("/¥@‾ ", Mid(stg, i, 1)) > 0 Or _
-                (i = Len(stg) And Mid(stg, i, 1) = ".") Then _
-                    GoTo Invalid
-        Case Else
-            GoTo Invalid
+    Dim srcDic As New Dictionary
+    Dim vbPjt As VBProject: Set vbPjt = Workbooks(bookName).VBProject
+    Dim vbCmps As VBComponents: Set vbCmps = vbPjt.VBComponents
+    Dim vbCmp As VBIDE.VBComponent
+    For Each vbCmp In vbCmps
+        Dim fName As String: fName = ""
+        Dim fPath As String: fPath = ""
+        Select Case vbCmp.Type
+            Case vbext_ct_StdModule
+                fName = vbCmp.Name & ".bas"
+                fPath = srcPath & "¥" & fName
+            Case vbext_ct_MSForm
+                fName = vbCmp.Name & ".frm"
+                fPath = srcPath & "¥" & fName
+            Case vbext_ct_ClassModule
+                fName = vbCmp.Name & ".cls"
+                fPath = srcPath & "¥" & fName
+            Case vbext_ct_Document
+                fName = vbCmp.Name & ".dcm"
+                fPath = srcPath & "¥" & fName
+            Case Else
+                GoTo Continue
         End Select
+        vbCmp.Export fPath
+        ConvertUTF8 fPath
+        ' プロジェクトに無いモジュールをフォルダから削除する準備
+        If Not srcDic.Exists(fName) Then
+            Call srcDic.Add(fName, fPath)
+            If Right(fName, 3) = "frm" Then
+                fName = vbCmp.Name & ".frx"
+                fPath = srcPath & "¥" & fName
+                If Not srcDic.Exists(fName) Then _
+                    Call srcDic.Add(fName, fPath)
+            End If
+        End If
+Continue:
+        Set vbCmp = Nothing
     Next
-    CheckReposName = stg
-    Exit Function
-Invalid:
-    CheckReposName = ""
-End Function
-
-Sub ImportDocument(path As String, xlBook As Workbook)
-    Dim compos As VBComponents
-    Set compos = xlBook.VBProject.VBComponents
-    
-    Dim impCompo As VBComponent
-    Set impCompo = compos.Import(path)
-    
-    Dim origCompo As VBComponent
-    Dim cname As String, bname As String
-    cname = impCompo.name
-    bname = GetNameFromPath(path) ' Assuming you have a function to get name from path
-    
-    If cname <> bname Then
-        Set origCompo = compos.Item(bname)
-    Else
-        Dim sht As Worksheet
-        Set sht = xlBook.Worksheets.Add()
-        Set origCompo = compos.Item(sht.CodeName)
-        
-        Dim tmpname As String
-        tmpname = "ImportTemp"
-        While ComponentExists(compos, tmpname)
-            tmpname = tmpname & "1"
-        Wend
-        
-        impCompo.name = tmpname
-        origCompo.name = cname
-    End If
-    
-    Dim imod As CodeModule, omod As CodeModule
-    Set imod = impCompo.CodeModule
-    Set omod = origCompo.CodeModule
-    omod.DeleteLines 1, omod.CountOfLines
-    omod.AddFromString imod.Lines(1, imod.CountOfLines)
-    
-    compos.Remove impCompo
+    Set vbCmps = Nothing
+    Set vbPjt = Nothing
+    ' プロジェクトに無いモジュールファイルを削除
+    Dim fso As New FileSystemObject
+    Dim fld As Folder
+    Set fld = fso.GetFolder(srcPath)
+    Dim f As File
+    For Each f In fld.Files
+        If Not srcDic.Exists(f.Name) Then f.Delete
+    Next
 End Sub
 
-Function GetNameFromPath(path As String) As String
-    ' Function to get name from path
-    GetNameFromPath = Mid(path, InStrRev(path, "¥") + 1, Len(path))
-End Function
+Public Sub ConvertUTF8(ByVal srcPath As String)
+    Dim fso As Object: Set fso = CreateObject("Scripting.FileSystemObject")
+    ' テキストファイルを開く
+    Dim sm As Object: Set sm = fso.OpenTextFile(srcPath)
+    ' ファイルの内容を読み込む
+    Dim txt As String: txt = sm.ReadAll
+    Set sm = Nothing
+    Set fso = Nothing
+    ' UTF-8でテキストファイルに保存
+    Call GenerateUTF8(txt, srcPath)
+End Sub
 
-Function ComponentExists(compos As VBComponents, name As String) As Boolean
-    Dim c As VBComponent
-    On Error Resume Next
-    Set c = compos.Item(name)
-    If Err.Number = 0 Then
-        ComponentExists = True
-    Else
-        ComponentExists = False
+Private Sub DecombineEx()
+    ' 新しいExcelインスタンスを作成
+    Dim newExcel As Excel.Application
+    Set newExcel = CreateObject("Excel.Application")
+    ' ブックを読み取り専用で開く
+    Dim bookName As String: bookName = ActiveWorkbook.FullName
+    Dim xBook As Workbook
+    Set xBook = newExcel.Workbooks.Open(bookName, ReadOnly:=True)
+    
+    Dim rootDir As String: rootDir = GetRootDir(bookName)
+    If rootDir = "" Then Exit Sub
+    Dim srcPath As String
+    srcPath = rootDir & "¥src"
+    Call CreateDirIfThereNo(srcPath)
+    Dim vbPjt As VBProject: Set vbPjt = xBook.VBProject
+    Dim vbCmps As VBComponents: Set vbCmps = vbPjt.VBComponents
+    Dim vbCmp As VBIDE.VBComponent
+    For Each vbCmp In vbCmps
+        Dim fPath As String: fPath = ""
+        Select Case vbCmp.Type
+            Case vbext_ct_StdModule
+                fPath = srcPath & "¥" & vbCmp.Name & ".bas"
+            Case vbext_ct_MSForm
+                fPath = srcPath & "¥" & vbCmp.Name & ".frm"
+            Case vbext_ct_ClassModule
+                fPath = srcPath & "¥" & vbCmp.Name & ".cls"
+            Case vbext_ct_Document
+                fPath = srcPath & "¥" & vbCmp.Name & ".dcm"
+            Case Else
+                GoTo Continue
+        End Select
+        vbCmp.Export fPath
+        ConvertUTF8 fPath
+Continue:
+        Set vbCmp = Nothing
+    Next
+    xBook.Close False
+    newExcel.Quit
+    Set vbCmps = Nothing
+    Set vbPjt = Nothing
+End Sub
+
+' リポジトリ名をレジストリに記録
+Public Function SetAndThenGetReposName(ByVal bookName As String) As String
+    bookName = GetShortBookName(bookName)
+    Dim repoName As String: repoName = GetSetting("Excel", bookName, "RepositoryName")
+    If repoName = "" Then
+        repoName = InputBox("リポジトリ名を英字で入力してください。")
+        If repoName = "" Then
+            SetAndThenGetReposName = ""
+            Exit Function
+        End If
+        If Not IsValidRepoName(repoName) Then
+            MsgBox "リポジトリ名は無効です。" & vbCr & vbCr & _
+                "リポジトリ名は英字で始まり、小文字、数字、ハイフン、アンダースコア、" & vbCr & _
+                "ピリオドを含めることができ、最大256文字までです。" & vbCr & _
+                "連続するハイフン、アンダースコアは使用できません。", vbInformation
+            SetAndThenGetReposName = ""
+            Exit Function
+        End If
+        Call SaveSetting("Excel", bookName, "RepositoryName", repoName)
     End If
-    On Error GoTo 0
+    SetAndThenGetReposName = repoName
 End Function
 
-Public Sub GitInit()
+' 最初のアンダースコアから最後のドットまでの間の文字列を消去する
+Private Function GetShortBookName(ByVal bookName As String) As String
+    
+    ' アンスコの位置
+    Dim unsPos As Integer: unsPos = InStr(bookName, "_")
+    ' ドットの位置
+    Dim dotPos As Integer: dotPos = InStrRev(bookName, ".")
+
+    If unsPos = 0 Or dotPos = 0 Then
+        ' アンスコまたはドットが見つからない場合、元のファイル名を返す
+        GetShortBookName = bookName
+    Else
+        ' アンスコの前の部分と、最後のドットの後の部分を結合
+        GetShortBookName = Left(bookName, unsPos - 1) & Mid(bookName, dotPos)
+    End If
+End Function
+
+' レジストリにトークンを登録
+Public Sub RegisterToken()
     On Error GoTo Catch
-    Dim urlStr As String: urlStr = InputBox("リモートリポジトリのURLを入力してください。")
-    If urlStr = "" Then GoTo Finally
-    Dim reposName As String: reposName = ExtractProjectName(urlStr)
-    ActiveWorkbook.BuiltinDocumentProperties(5).Value = reposName
-    Dim reposPath As String: reposPath = Environ$("USERPROFILE") & "¥" & ParentDir & "¥" & reposName
-    Call ChDir(reposPath)
-            
-    Dim cmdStr As String: cmdStr = "echo # & " & reposName & " >> README.md"
-    Dim rt As Long: rt = RunCmd(cmdStr)
-    rt = GitCmd(Stage)
-    rt = GitCmd(Commit, "リポジトリ開始")
-    cmdStr = "git branch -M main"
-    rt = RunCmd(cmdStr)
-    cmdStr = "git remote add origin " & urlStr
-    rt = RunCmd(cmdStr)
-    rt = GitCmd(Push)
-    GoTo Finally
+    Dim keyStr As String
+    keyStr = InputBox("GitHubの個人アクセストークンを入力してください。")
+    If keyStr = "" Then Exit Sub
+    Call SaveSetting("GitHub", "Token", "Classic", keyStr)
+    MsgBox "GitHubの個人アクセストークンを登録しました。", vbInformation
+    Exit Sub
 Catch:
-    OutputError "GitInit"
-Finally:
-    
+    MsgBox Err.Description, vbExclamation
 End Sub
+
+' レジストリからトークンを得る
+Public Function GetTokenFromRegistry() As String
+    GetTokenFromRegistry = GetSetting("GitHub", "Token", "Classic")
+End Function
+
+' レジストリからトークン用のキーを削除
+Public Sub DeleteToken()
+    Call DeleteSetting("GitHub", "Token", "Classic")
+End Sub
+
+' GitHubのリポジトリ名の有効性をチェックする
+Function IsValidRepoName(ByVal repoName As String) As Boolean
+    Dim regEx As Object: Set regEx = CreateObject("VBScript.RegExp")
+
+    ' リポジトリ名は英字で始まり、指定された文字のみ含む、最大256文字
+    With regEx
+        .Pattern = "^[a-zA-Z][-a-zA-Z0-9_.]*$"
+        .IgnoreCase = False
+        .Global = False
+    End With
+
+    ' リポジトリ名が空、長すぎる、または正規表現に一致しない場合は無効
+    If Len(repoName) = 0 Or Len(repoName) > 256 Or Not regEx.Test(repoName) Then
+        IsValidRepoName = False
+    Else
+        ' 連続するハイフン、アンダースコアをチェック
+        If InStr(repoName, "--") > 0 Or InStr(repoName, "__") > 0 Then
+            IsValidRepoName = False
+        Else
+            IsValidRepoName = True
+        End If
+    End If
+    
+    Set regEx = Nothing
+End Function
+
+Function GetRepositoryURL(ByVal repoPath As String) As String
+    Dim wsh As Object: Set wsh = CreateObject("WScript.Shell")
+    Dim cmd As String: cmd = "cmd /c cd /d """ & repoPath & """ & git remote get-url origin"
+    Dim wEx As Object: Set wEx = wsh.Exec(cmd)
+
+    Dim rt As String
+    Do While Not wEx.StdOut.AtEndOfStream
+        rt = rt & wEx.StdOut.ReadLine() & vbNewLine
+    Loop
+    Dim rtStr() As String: rtStr = Split(rt, vbNewLine)
+    GetRepositoryURL = rtStr(0)
+End Function
+
+
+' srcフォルダを指定してActiveWorkbookをExport
+Public Sub DecombinePortable(ByVal bookName As String, Optional rootDir As String, Optional ByVal includeBookName As Boolean = False)
+    If rootDir = "" Then rootDir = InputBox("リポジトリのパスを指定")
+    If rootDir = "" Then Exit Sub
+    Dim srcPath As String
+    If includeBookName Then
+        srcPath = rootDir & "¥src¥" & GetShortBookName(bookName)
+    Else
+        srcPath = rootDir & "¥src"
+    End If
+    Call CreateDirIfThereNo(srcPath)
+    Dim srcDic As New Dictionary
+    Dim vbPjt As VBProject: Set vbPjt = Workbooks(bookName).VBProject
+    Dim vbCmps As VBComponents: Set vbCmps = vbPjt.VBComponents
+    Dim vbCmp As VBIDE.VBComponent
+    For Each vbCmp In vbCmps
+        Dim fName As String: fName = ""
+        Dim fPath As String: fPath = ""
+        Select Case vbCmp.Type
+            Case vbext_ct_StdModule
+                fName = vbCmp.Name & ".bas"
+                fPath = srcPath & "¥" & fName
+            Case vbext_ct_MSForm
+                fName = vbCmp.Name & ".frm"
+                fPath = srcPath & "¥" & fName
+            Case vbext_ct_ClassModule
+                fName = vbCmp.Name & ".cls"
+                fPath = srcPath & "¥" & fName
+            Case vbext_ct_Document
+                fName = vbCmp.Name & ".dcm"
+                fPath = srcPath & "¥" & fName
+            Case Else
+                GoTo Continue
+        End Select
+        vbCmp.Export fPath
+        ConvertUTF8 fPath
+        ' プロジェクトに無いモジュールをフォルダから削除する準備
+        If Not srcDic.Exists(fName) Then
+            Call srcDic.Add(fName, fPath)
+            If Right(fName, 3) = "frm" Then
+                fName = vbCmp.Name & ".frx"
+                fPath = srcPath & "¥" & fName
+                If Not srcDic.Exists(fName) Then _
+                    Call srcDic.Add(fName, fPath)
+            End If
+        End If
+Continue:
+        Set vbCmp = Nothing
+    Next
+    Set vbCmps = Nothing
+    Set vbPjt = Nothing
+    ' プロジェクトに無いモジュールファイルを削除
+    Dim fso As New FileSystemObject
+    Dim fld As Folder
+    Set fld = fso.GetFolder(srcPath)
+    Dim f As File
+    For Each f In fld.Files
+        If Not srcDic.Exists(f.Name) Then f.Delete
+    Next
+    MsgBox "展開が完了しました。", vbInformation
+End Sub
+
