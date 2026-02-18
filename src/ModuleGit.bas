@@ -63,20 +63,29 @@ Public Sub CreateNewRepository()
     ' srcフォルダにCodeModuleをExport
     Call Decombine(xBook.Name)
     
-    ' リモートリポジトリの作成
-    If CreateRemoteRepos(bookName, repoName) Then
+    '登録済みアカウントごとにリモートリポジトリを作成
+    Dim accounts() As String: accounts = GetAccountList()
+    Dim successCount As Long: successCount = 0
+    Dim acIdx As Long
+    For acIdx = 0 To UBound(accounts)
+        If CreateRemoteRepos(bookName, repoName, accounts(acIdx)) Then
+            successCount = successCount + 1
+        End If
+    Next acIdx
+    If successCount > 0 Then
+        Call GitCmd(Init)
         MsgBox bookName & " 用のリポジトリの準備ができました。", vbInformation
     End If
     
     Set xBook = Nothing
 End Sub
 
-Public Function CreateRemoteRepos(ByVal bookName As String, ByVal repoName As String) As Boolean
+Public Function CreateRemoteRepos(ByVal bookName As String, ByVal repoName As String, ByVal accountName As String) As Boolean
     On Error GoTo Catch
     Dim rt As Boolean: rt = False
     
     ' トークンを取得
-    Dim token As String: token = GetTokenFromRegistry()
+    Dim token As String: token = GetTokenFromRegistry(accountName)
     If Trim(token) = "" Then
         MsgBox "個人用アクセストークンを登録してください。", vbInformation
         CreateRemoteRepos = rt
@@ -102,9 +111,7 @@ Public Function CreateRemoteRepos(ByVal bookName As String, ByVal repoName As St
     If http.Status = 201 Then
         Dim json    As Object: Set json = JsonConverter.ParseJson(http.responseText)
         Dim repoUrl As String: repoUrl = json("html_url")
-        Call SaveSetting("Excel", bookName, "RepositoryURL", repoUrl)
-        Call GitCmd(Init)
-        MsgBox "リモートリポジトリが作成されました。" & vbCr & vbCr & repoUrl, vbInformation
+        MsgBox accountName & " のリモートリポジトリが作成されました。" & vbCr & vbCr & repoUrl, vbInformation
         rt = True
     Else
         MsgBox "リモートリポジトリの作成に失敗しました。" & vbCr & vbCr & _
@@ -279,8 +286,9 @@ Public Function GitCmd(ByVal cmd As GitCommand, Optional ByVal arg As String = E
     Select Case cmd
     Case Init
         Dim bookName As String: bookName = GetShortBookName(xBook.Name)
-        Dim repoUrl  As String: repoUrl = GetSetting("Excel", bookName, "RepositoryURL")
-        If repoUrl = "" Then
+        Dim initRepoName As String: initRepoName = GetSetting("Excel", bookName, "RepositoryName")
+        Dim initAccounts() As String: initAccounts = GetAccountList()
+        If initRepoName = "" Or UBound(initAccounts) < 0 Then
             MsgBox "リモートリポジトリを作成してください。", vbInformation
             GoTo Finally
         End If
@@ -288,8 +296,18 @@ Public Function GitCmd(ByVal cmd As GitCommand, Optional ByVal arg As String = E
         rt = rt & vbCr & RunCmd("git add .")
         rt = rt & vbCr & RunCmd("git commit -m ""リポジトリ開始""")
         rt = rt & vbCr & RunCmd("git branch -M main")
-        rt = rt & vbCr & RunCmd("git remote add origin " & repoUrl)
-        rt = rt & vbCr & RunCmd("git push -u origin main")
+        Dim initOriginUrl As String
+        initOriginUrl = "https://github.com/" & initAccounts(0) & "/" & initRepoName & ".git"
+        rt = rt & vbCr & RunCmd("git remote add origin " & initOriginUrl)
+        Dim initIdx As Long
+        For initIdx = 0 To UBound(initAccounts)
+            Dim initPat As String: initPat = GetTokenFromRegistry(initAccounts(initIdx))
+            If initPat <> "" Then
+                Dim initPushUrl As String
+                initPushUrl = "https://" & initPat & "@github.com/" & initAccounts(initIdx) & "/" & initRepoName & ".git"
+                rt = rt & vbCr & RunCmd("git push " & initPushUrl & " main")
+            End If
+        Next initIdx
     Case Status
         rt = RunCmd("git status")
     Case Stage
@@ -298,7 +316,7 @@ Public Function GitCmd(ByVal cmd As GitCommand, Optional ByVal arg As String = E
             Application.DisplayAlerts = False
             If xBook.path = rootDir & "¥bin" Then
                 MsgBox "binフォルダ内の" & xBook.Name & "を開いたままステージ出来ません。" & vbLf & _
-                       "ステージはキャンセルされました。, vbInformation"
+                       "ステージはキャンセルされました。", vbInformation
                 GoTo Finally
             Else
                 'xBook.Save
@@ -322,8 +340,23 @@ Public Function GitCmd(ByVal cmd As GitCommand, Optional ByVal arg As String = E
         rt = RunCmd("git commit -m """ & arg & """")
     Case Push
         Dim mBranch As String
-        If arg = Empty Then mBranch = "main"
-        rt = RunCmd("git push origin " & mBranch)
+        If arg = Empty Then mBranch = "main" Else mBranch = arg
+        Dim pushBookName As String: pushBookName = GetShortBookName(xBook.Name)
+        Dim pushRepoName As String: pushRepoName = GetSetting("Excel", pushBookName, "RepositoryName")
+        If pushRepoName = "" Then
+            MsgBox "リポジトリが登録されていません。", vbInformation
+            GoTo Finally
+        End If
+        Dim pushAccounts() As String: pushAccounts = GetAccountList()
+        Dim pushIdx As Long
+        For pushIdx = 0 To UBound(pushAccounts)
+            Dim pushPat As String: pushPat = GetTokenFromRegistry(pushAccounts(pushIdx))
+            If pushPat <> "" Then
+                Dim pushUrl As String
+                pushUrl = "https://" & pushPat & "@github.com/" & pushAccounts(pushIdx) & "/" & pushRepoName & ".git"
+                rt = rt & vbCr & RunCmd("git push " & pushUrl & " " & mBranch)
+            End If
+        Next pushIdx
     End Select
     If Right(rt, 1) <> vbLf Then rt = rt & vbLf
     Debug.Print rt
@@ -520,24 +553,58 @@ End Function
 ' レジストリにトークンを登録
 Public Sub RegisterToken()
     On Error GoTo Catch
+    Dim accountName As String
+    accountName = InputBox("GitHubのアカウント名を入力してください。")
+    If accountName = "" Then Exit Sub
     Dim keyStr As String
     keyStr = InputBox("GitHubの個人アクセストークンを入力してください。")
     If keyStr = "" Then Exit Sub
-    Call SaveSetting("GitHub", "Token", "Classic", keyStr)
-    MsgBox "GitHubの個人アクセストークンを登録しました。", vbInformation
+    Call SaveSetting("GitHub", accountName, "Classic", keyStr)
+    On Error Resume Next
+    DeleteSetting "GitHub", "Token"
+    On Error GoTo 0
+    MsgBox accountName & " のトークンを登録しました。", vbInformation
     Exit Sub
 Catch:
     MsgBox Err.Description, vbExclamation
 End Sub
 
 ' レジストリからトークンを得る
-Public Function GetTokenFromRegistry() As String
-    GetTokenFromRegistry = GetSetting("GitHub", "Token", "Classic")
+Public Function GetTokenFromRegistry(ByVal accountName As String) As String
+    GetTokenFromRegistry = GetSetting("GitHub", accountName, "Classic")
+End Function
+
+'登録済みアカウント一覧を返す（WMI によるレジストリキー列挙）
+Public Function GetAccountList() As String()
+    Dim oReg As Object
+    Set oReg = GetObject("winmgmts:{impersonationLevel=impersonate}!¥¥.¥root¥default:StdRegProv")
+    Dim arrSubKeys() As String
+    Const HKCU As Long = &H80000001
+    oReg.EnumKey HKCU, "Software¥VB and VBA Program Settings¥GitHub", arrSubKeys
+    Set oReg = Nothing
+    If IsNull(arrSubKeys) Or Not IsArray(arrSubKeys) Then
+        GetAccountList = Array()
+    Else
+        GetAccountList = arrSubKeys
+    End If
 End Function
 
 ' レジストリからトークン用のキーを削除
 Public Sub DeleteToken()
-    Call DeleteSetting("GitHub", "Token", "Classic")
+    On Error GoTo Catch
+    Dim accounts() As String: accounts = GetAccountList()
+    If UBound(accounts) < 0 Then
+        MsgBox "登録されているアカウントはありません。", vbInformation
+        Exit Sub
+    End If
+    Dim accountName As String
+    accountName = InputBox("削除するアカウント名を入力してください。" & vbLf & vbLf & "登録済み：" & Join(accounts, ", "))
+    If accountName = "" Then Exit Sub
+    DeleteSetting "GitHub", accountName
+    MsgBox accountName & " のトークンを削除しました。", vbInformation
+    Exit Sub
+Catch:
+    MsgBox Err.Description, vbExclamation
 End Sub
 
 ' GitHubのリポジトリ名の有効性をチェックする
