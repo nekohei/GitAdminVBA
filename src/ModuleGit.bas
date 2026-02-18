@@ -38,7 +38,7 @@ Public Sub CreateNewRepository()
     If repoName = "" Then Exit Sub
 
     'プッシュ先アカウントを選択（スキップすると全アカウント）
-    Call RegisterPushAccounts()
+    If Not RegisterPushAccounts() Then Exit Sub
     
     ' ローカルリポジトリフォルダ作成
     Dim repoDir As String: repoDir = GetRootDir(xBook.Name)
@@ -633,32 +633,39 @@ Public Function GetPushAccounts(ByVal bookName As String) As String()
 End Function
 
 'ブックのプッシュ先アカウントをレジストリに登録
-Public Sub RegisterPushAccounts()
+Public Function RegisterPushAccounts() As Boolean
     On Error GoTo Catch
     Dim xBook As Workbook: Set xBook = ActiveWorkbook
     Dim bookName As String: bookName = GetShortBookName(xBook.Name)
     Dim allAccounts() As String: allAccounts = GetAccountList()
     If UBound(allAccounts) < 0 Then
         MsgBox "登録済みのGitHubアカウントがありません。", vbInformation
-        Exit Sub
+        RegisterPushAccounts = False
+        Exit Function
     End If
     Dim current As String: current = GetSetting("Excel", bookName, "PushAccounts")
     Dim prompt As String
     prompt = "プッシュ先アカウントをカンマ区切りで入力してください。" & vbLf & vbLf & _
              "登録済みアカウント: " & Join(allAccounts, ", ") & vbLf & vbLf & _
              "現在の設定: " & IIf(current = "", "（未設定 = 全アカウント）", current)
-    Dim ans As String: ans = InputBox(prompt, "プッシュ先アカウント設定", current)
-    If StrPtr(ans) = 0 Then Exit Sub  'キャンセル
+    Dim ans As String
+    ans = InputBox(prompt, "プッシュ先アカウント設定", current)
+    If StrPtr(ans) = 0 Then
+        RegisterPushAccounts = False  'キャンセル
+        Exit Function
+    End If
     Call SaveSetting("Excel", bookName, "PushAccounts", ans)
     If Trim(ans) = "" Then
         MsgBox "プッシュ先設定を解除しました（全アカウントにプッシュします）。", vbInformation
     Else
         MsgBox bookName & " のプッシュ先: " & ans, vbInformation
     End If
-    Exit Sub
+    RegisterPushAccounts = True
+    Exit Function
 Catch:
     MsgBox Err.Description, vbExclamation
-End Sub
+    RegisterPushAccounts = False
+End Function
 
 
 ' レジストリからトークン用のキーを削除
