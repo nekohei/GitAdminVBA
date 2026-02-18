@@ -574,19 +574,41 @@ Public Function GetTokenFromRegistry(ByVal accountName As String) As String
     GetTokenFromRegistry = GetSetting("GitHub", accountName, "Classic")
 End Function
 
-'登録済みアカウント一覧を返す（WMI によるレジストリキー列挙）
+'登録済みアカウント一覧を返す（reg query によるレジストリキー列挙）
 Public Function GetAccountList() As String()
-    Dim oReg As Object
-    Set oReg = GetObject("winmgmts:{impersonationLevel=impersonate}!¥¥.¥root¥default:StdRegProv")
-    Dim arrSubKeys() As String
-    Const HKCU As Long = &H80000001
-    oReg.EnumKey HKCU, "Software¥VB and VBA Program Settings¥GitHub", arrSubKeys
-    Set oReg = Nothing
-    If IsNull(arrSubKeys) Or Not IsArray(arrSubKeys) Then
+    On Error GoTo Catch
+    Dim wsh As Object: Set wsh = CreateObject("WScript.Shell")
+    Dim oExec As Object
+    Set oExec = wsh.Exec("cmd /c reg query ""HKCU¥Software¥VB and VBA Program Settings¥GitHub""")
+    Dim output As String
+    Do While Not oExec.StdOut.AtEndOfStream
+        output = output & oExec.StdOut.ReadLine() & vbLf
+    Loop
+    Set wsh = Nothing
+
+    Dim baseKey As String
+    baseKey = "HKEY_CURRENT_USER¥Software¥VB and VBA Program Settings¥GitHub¥"
+    Dim lines() As String: lines = Split(output, vbLf)
+    Dim result() As String
+    ReDim result(UBound(lines))
+    Dim idx As Long: idx = 0
+    Dim i As Long
+    For i = 0 To UBound(lines)
+        Dim line As String: line = Trim(lines(i))
+        If Left(line, Len(baseKey)) = baseKey Then
+            result(idx) = Mid(line, Len(baseKey) + 1)
+            idx = idx + 1
+        End If
+    Next i
+    If idx = 0 Then
         GetAccountList = Array()
     Else
-        GetAccountList = arrSubKeys
+        ReDim Preserve result(idx - 1)
+        GetAccountList = result
     End If
+    Exit Function
+Catch:
+    GetAccountList = Array()
 End Function
 
 ' レジストリからトークン用のキーを削除

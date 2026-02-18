@@ -1,0 +1,12 @@
+# Claude Code 設定
+.claude/
+.mcp.json
+
+# ログ・一時ファイル
+logs/
+*.tmp
+~$*.xl*
+
+# bin以外のxlam等はgit管理しない
+*.xl*
+!bin/*.xlam

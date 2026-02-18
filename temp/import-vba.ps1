@@ -1,13 +1,23 @@
 ﻿# import-vba.ps1
-# src/ の VBAモジュールを Git管理.xlam に反映する
-# .dcm（ドキュメントモジュール）は今回の改修対象外のためスキップ
+# src/ の VBAモジュールを bin/Git管理.xlam に反映する
+# .dcm（ドキュメントモジュール）はスキップ
+#
+# 【前提】Excel をすべて終了した状態で実行すること
+# （アドインが読み込まれていない状態でないと同名ファイルを開けないため）
 
-$binPath     = "c:\Users\1784\claude\VBA\Excel\GitAdminVBA\bin\Git管理.xlam"
-$historyDir  = "c:\Users\1784\claude\VBA\Excel\GitAdminVBA\bin\history"
-$archivePath = "$historyDir\Git管理_20260218.xlam"
-$srcPath     = "c:\Users\1784\claude\VBA\Excel\GitAdminVBA\src\\"
+$binPath    = "c:\Users\1784\claude\VBA\Excel\GitAdminVBA\bin\Git管理.xlam"
+$historyDir = "c:\Users\1784\claude\VBA\Excel\GitAdminVBA\bin\history"
+$srcPath    = "c:\Users\1784\claude\VBA\Excel\GitAdminVBA\src\"
 
-# ---- 1. 改修前バージョンをアーカイブ ----
+# ---- 0. Excel プロセス確認 ----
+if (Get-Process -Name EXCEL -ErrorAction SilentlyContinue) {
+    Write-Host "Excel が起動中です。すべての Excel を閉じてから実行してください。" -ForegroundColor Red
+    exit 1
+}
+
+# ---- 1. 改修前バージョンをアーカイブ（日付付き、上書きなし） ----
+$today       = Get-Date -Format "yyyyMMdd"
+$archivePath = "$historyDir\Git管理_$today.xlam"
 if (-not (Test-Path $archivePath)) {
     Copy-Item $binPath $archivePath
     Write-Host "アーカイブ完了: $archivePath" -ForegroundColor Cyan
@@ -24,7 +34,7 @@ try {
     $wb   = $excel.Workbooks.Open($binPath)
     $proj = $wb.VBProject
 
-    # 標準モジュール・クラスモジュールを削除（Type 1=標準, 2=クラス）
+    # 標準モジュール（Type=1）・クラスモジュール（Type=2）を削除
     $toRemove = @()
     foreach ($comp in $proj.VBComponents) {
         if ($comp.Type -eq 1 -or $comp.Type -eq 2) {
@@ -48,7 +58,6 @@ try {
         Write-Host "インポート: $($_.Name)" -ForegroundColor Green
     }
 
-    # .dcm（ドキュメントモジュール）は今回の改修対象外のためスキップ
     Write-Host ".dcm はスキップ（ThisWorkbook / Sheet1 は変更なし）" -ForegroundColor Yellow
 
     $wb.Save()
@@ -57,5 +66,5 @@ try {
 
 } finally {
     $excel.Quit()
-    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null
+    [Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null
 }
