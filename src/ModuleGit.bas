@@ -423,7 +423,7 @@ Continue:
     Next
 End Sub
 
-Public Sub ConvertUTF8(ByVal srcPath As String)
+Private Sub ConvertUTF8(ByVal srcPath As String)
     Dim fso As Object: Set fso = CreateObject("Scripting.FileSystemObject")
     ' テキストファイルを開く
     Dim sm As Object: Set sm = fso.OpenTextFile(srcPath)
