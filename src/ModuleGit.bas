@@ -36,6 +36,9 @@ Public Sub CreateNewRepository()
     Dim xBook As Workbook: Set xBook = ActiveWorkbook
     Dim repoName As String: repoName = SetAndThenGetReposName(xBook.Name)
     If repoName = "" Then Exit Sub
+
+    'プッシュ先アカウントを選択（スキップすると全アカウント）
+    Call RegisterPushAccounts()
     
     ' ローカルリポジトリフォルダ作成
     Dim repoDir As String: repoDir = GetRootDir(xBook.Name)
@@ -64,7 +67,7 @@ Public Sub CreateNewRepository()
     Call Decombine(xBook.Name)
     
     '登録済みアカウントごとにリモートリポジトリを作成
-    Dim accounts() As String: accounts = GetAccountList()
+    Dim accounts() As String: accounts = GetPushAccounts(xBook.Name)
     Dim successCount As Long: successCount = 0
     Dim acIdx As Long
     For acIdx = 0 To UBound(accounts)
