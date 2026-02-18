@@ -287,7 +287,7 @@ Public Function GitCmd(ByVal cmd As GitCommand, Optional ByVal arg As String = E
     Case Init
         Dim bookName As String: bookName = GetShortBookName(xBook.Name)
         Dim initRepoName As String: initRepoName = GetSetting("Excel", bookName, "RepositoryName")
-        Dim initAccounts() As String: initAccounts = GetAccountList()
+        Dim initAccounts() As String: initAccounts = GetPushAccounts(xBook.Name)
         If initRepoName = "" Or UBound(initAccounts) < 0 Then
             MsgBox "リモートリポジトリを作成してください。", vbInformation
             GoTo Finally
@@ -347,7 +347,7 @@ Public Function GitCmd(ByVal cmd As GitCommand, Optional ByVal arg As String = E
             MsgBox "リポジトリが登録されていません。", vbInformation
             GoTo Finally
         End If
-        Dim pushAccounts() As String: pushAccounts = GetAccountList()
+        Dim pushAccounts() As String: pushAccounts = GetPushAccounts(xBook.Name)
         Dim pushIdx As Long
         For pushIdx = 0 To UBound(pushAccounts)
             Dim pushPat As String: pushPat = GetTokenFromRegistry(pushAccounts(pushIdx))
@@ -610,6 +610,53 @@ Public Function GetAccountList() As String()
 Catch:
     GetAccountList = Array()
 End Function
+
+'ブックのプッシュ先アカウントリストをレジストリから取得（未設定時は全アカウント）
+Public Function GetPushAccounts(ByVal bookName As String) As String()
+    bookName = GetShortBookName(bookName)
+    Dim setting As String
+    setting = GetSetting("Excel", bookName, "PushAccounts")
+    If Trim(setting) = "" Then
+        '未設定の場合は全アカウント（後方互換）
+        GetPushAccounts = GetAccountList()
+    Else
+        Dim parts() As String: parts = Split(setting, ",")
+        Dim i As Long
+        For i = 0 To UBound(parts)
+            parts(i) = Trim(parts(i))
+        Next i
+        GetPushAccounts = parts
+    End If
+End Function
+
+'ブックのプッシュ先アカウントをレジストリに登録
+Public Sub RegisterPushAccounts()
+    On Error GoTo Catch
+    Dim xBook As Workbook: Set xBook = ActiveWorkbook
+    Dim bookName As String: bookName = GetShortBookName(xBook.Name)
+    Dim allAccounts() As String: allAccounts = GetAccountList()
+    If UBound(allAccounts) < 0 Then
+        MsgBox "登録済みのGitHubアカウントがありません。", vbInformation
+        Exit Sub
+    End If
+    Dim current As String: current = GetSetting("Excel", bookName, "PushAccounts")
+    Dim prompt As String
+    prompt = "プッシュ先アカウントをカンマ区切りで入力してください。" & vbLf & vbLf & _
+             "登録済みアカウント: " & Join(allAccounts, ", ") & vbLf & vbLf & _
+             "現在の設定: " & IIf(current = "", "（未設定 = 全アカウント）", current)
+    Dim ans As String: ans = InputBox(prompt, "プッシュ先アカウント設定", current)
+    If StrPtr(ans) = 0 Then Exit Sub  'キャンセル
+    Call SaveSetting("Excel", bookName, "PushAccounts", ans)
+    If Trim(ans) = "" Then
+        MsgBox "プッシュ先設定を解除しました（全アカウントにプッシュします）。", vbInformation
+    Else
+        MsgBox bookName & " のプッシュ先: " & ans, vbInformation
+    End If
+    Exit Sub
+Catch:
+    MsgBox Err.Description, vbExclamation
+End Sub
+
 
 ' レジストリからトークン用のキーを削除
 Public Sub DeleteToken()
