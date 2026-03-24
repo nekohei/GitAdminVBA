@@ -193,7 +193,7 @@ Public Sub GenerateGitFiles(ByVal rootDir As String, ByVal srcDir As String)
     With ThisWorkbook.VBProject.VBComponents(ContentsModuleName).CodeModule
         Dim i As Long, iLine As String
         For i = 1 To .CountOfLines
-            iLine = .Lines(i, 1)
+            iLine = .lines(i, 1)
             ' 対象はコメント行のみ
             If UCase(Left(Trim(iLine), 3)) = "REM" Then
                 fileName = Trim(Mid(Trim(iLine), 4))

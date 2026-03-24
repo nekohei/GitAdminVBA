@@ -6,7 +6,7 @@ Rem .gitattributes
 '*.bas       text    eol=crlf
 '*.cls       text    eol=crlf
 '*.frm       text    eol=crlf
-'*.frx       binary  eol=crlf
+'*.frx       binary
 '*.dcm       text    eol=crlf
 '*.vbaproj   text    eol=crlf
 '
@@ -17,21 +17,11 @@ Rem .gitattributes
 '*.dcm linguist-language=VBA
 '*.vbaproj linguist-language=INI
 '
-'# file encording
-'*.bas working-tree-encoding=UTF-8
-'*.cls working-tree-encoding=UTF-8
-'*.dcm working-tree-encoding=UTF-8
-'*.frm working-tree-encoding=UTF-8
-'
-'*.bas encoding=UTF-8
-'*.cls encoding=UTF-8
-'*.dcm encoding=UTF-8
-'*.frm encoding=UTF-8
-'
-'*.bas diff=UTF-8
-'*.cls diff=UTF-8
-'*.dcm diff=UTF-8
-'*.frm diff=UTF-8
+'# file encording (local=CP932, Git internal=UTF-8)
+'*.bas working-tree-encoding=CP932
+'*.cls working-tree-encoding=CP932
+'*.dcm working-tree-encoding=CP932
+'*.frm working-tree-encoding=CP932
 
 Rem .gitignore
 '*.tmp
@@ -52,7 +42,7 @@ Rem settings.json
 '    },
 '    "files.encoding": "utf8",
 '  },
-'  "files.encoding": "shiftjis",
+'  "files.encoding": "cp932",
 '  "files.associations": {
 '    "*.bas": "vb",
 '    "*.cls": "vb",
